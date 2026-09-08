@@ -56,6 +56,7 @@ time rather than mutated.
 | `candidates.ts` | `evaluate()` — applies the log to the station set. Also `previewSplit()` for the question-quality indicator, and the caching that keeps both fast. |
 | `spatial.ts` | Pre-projected layer index. Flat `Float64Array`s, built once per layer. |
 | `questions.ts` | All 80 questions as **data**, not code. Swapping cities means swapping `public/data/`, not touching the engine. |
+| `plan.ts` | `planCandidate()` — what a question *would* do if asked now. Builds its region by resolving a synthetic ask through `resolveAsk`, never by a parallel implementation, so a preview cannot disagree with the answer it previews. |
 
 ### Why UTM 10N, always
 
@@ -158,8 +159,9 @@ never repainted, and only appeared later when some unrelated prop changed.
 ### UI (`ui/`, ~1,620 lines)
 
 `TopBar` (role, zone counter, tabs, GPS/manual toggle) · `SeekerPanel` (question
-browser, ask log) · `HiderPanel` (answer assistant, exposure view) ·
-`MapLayers` (on-map layer control) · `LayerPanel` · `Diagnostics` · `RoundGate`.
+browser, plan, ask log) · `HiderPanel` (answer assistant, exposure view) ·
+`MapToolbar` → `MapLayers` + `MeasurePanel` (the on-map controls) · `PlanPanel` ·
+`LayerPanel` · `Diagnostics` · `RoundGate`.
 
 The sheet collapses to give the map ~88% of the screen.
 
@@ -167,6 +169,27 @@ The sheet collapses to give the map ~88% of the screen.
 the surviving zones, and null / always-yes questions are greyed with the reason.
 On an SF-only board a real fraction of the 80 carry zero information, and
 spending a turn on one hands the hider free cards for nothing.
+
+**Measuring toolbar** (`MeasurePanel`, `map/overlays.ts`): circles of a stated
+radius and free lines with a length label on every leg. Planning scratch, not
+game state — nothing it draws eliminates anything — but a circle reports how many
+surviving zones it contains, which is a radar preview from any point on the map
+rather than only from where the seeker happens to be standing. Shapes persist,
+because a circle drawn to reason about the next question is worth the same an
+hour later. Arming a tool closes the panel: it is 14.5 rem wide on a 414 px
+screen, over the part of the board being measured.
+
+**Plan layer** (`engine/plan.ts`, `PlanPanel`): up to three shortlisted
+questions, each with its split, its worst case, whether it can split at all, and
+its candidate region drawn on the map in its own colour — dashed outlines in a
+palette deliberately outside the answer-overlay one, because a hypothesis must
+never render like a fact. The cap is the feature: comparing everything is what
+the question list already does.
+
+Candidate regions anchor on a **coarse position** that only moves when the player
+has moved 50 m, and are computed in an effect rather than a memo. A measuring
+region is a union of disks over every park on the board; rebuilding three of them
+per GPS tick is the 74-second freeze in a new costume.
 
 **Hider exposure view**: the hider logs the answers they gave, and the same
 engine shows what the seekers can deduce. This works because the rulebook has

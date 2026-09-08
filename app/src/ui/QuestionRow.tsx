@@ -10,20 +10,25 @@ export function QuestionRow(props: {
   origin: LngLat | null;
   pins: { start?: LngLat; end?: LngLat };
   data: GameData;
+  /** Open state is owned by the list, so only one row is expanded at a time. */
+  open: boolean;
+  onToggle: () => void;
+  inPlan: boolean;
+  onTogglePlan: () => void;
   onAnswer: (a: Answer, extra?: Partial<AskEntry>) => void;
 }) {
-  const { question: q, status, timesAsked, pins, data, onAnswer } = props;
-  const [open, setOpen] = useState(false);
+  const { question: q, status, timesAsked, pins, data, open, onToggle, inPlan, onTogglePlan, onAnswer } = props;
   const [chooseM, setChooseM] = useState(1000);
 
   const dead = status.state === 'null';
   const weak = status.state === 'useless';
 
   return (
-    <li className={`qrow ${dead ? 'dead' : ''} ${weak ? 'weak' : ''}`}>
-      <button className="qhead" onClick={() => setOpen(!open)}>
+    <li className={`qrow ${dead ? 'dead' : ''} ${weak ? 'weak' : ''} ${inPlan ? 'planned' : ''}`}>
+      <button className="qhead" onClick={onToggle}>
         <span className="qlabel">
           {q.label}
+          {inPlan && <span className="tag good" title="On the plan shortlist">plan</span>}
           {timesAsked > 0 && (
             <span className="cost" title="Already asked — the cost multiplies">
               ×{timesAsked + 1} cost
@@ -49,9 +54,16 @@ export function QuestionRow(props: {
 
           {!dead && <Answers q={q} pins={pins} data={data} chooseM={chooseM} setChooseM={setChooseM} onAnswer={onAnswer} />}
 
-          <button className="link small" onClick={() => onAnswer({ kind: 'null' })}>
-            Record as null (no such thing on the map)
-          </button>
+          <div className="row">
+            {/* Shortlisting is the cheap action; answering is the expensive one.
+                They sit apart so a thumb reaching for one cannot hit the other. */}
+            <button className={`planbtn ${inPlan ? 'on' : ''}`} onClick={onTogglePlan}>
+              {inPlan ? '✓ On plan' : '+ Plan'}
+            </button>
+            <button className="link small" onClick={() => onAnswer({ kind: 'null' })}>
+              Record as null (no such thing on the map)
+            </button>
+          </div>
         </div>
       )}
     </li>

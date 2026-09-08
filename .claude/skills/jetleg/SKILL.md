@@ -30,6 +30,7 @@ Real examples, all shipped as "verified" before a user caught them:
 | Question list froze the UI for 74 s | tests passed, app "worked" | timing a category switch |
 | Label glyphs 404'd against the basemap | labels partly rendered | watching the network for 404s |
 | Seeker pin never repainted | state correct, panel text updated | `queryRenderedFeatures` on the pins layer |
+| Plan's split bar collapsed to 0 px wide | DOM correct, numbers present in the text | screenshotting the element and reading computed width |
 
 Two of these were mine to begin with *and* I misdiagnosed them twice before
 finding the cause. When a symptom is reported, reproduce it before theorising.
@@ -43,7 +44,10 @@ cd app
 npm run build      # tsc + vite + check-build.mjs (unresolved imports in output)
 npm test           # 23 engine tests, ~90 s
 npm run verify     # e2e-verify.cjs — drives a real browser, asserts zone counts
+npm run verify:tools  # verify-tools.cjs — measuring toolbar + plan layer, at 4x CPU throttle
 ```
+
+Both browser harnesses need a server first: `npx vite preview --port 4310`.
 
 If anything touched the map, rendering or layers — **ask MapLibre what it drew**,
 because a blank map throws nothing:
@@ -54,8 +58,17 @@ window.__map.queryRenderedFeatures({layers:['zones-alive']})    // must be > 0
 window.__map.queryRenderedFeatures({layers:['stations-dot']})   // must be > 0
 ```
 
-Healthy at default zoom: `styleLoaded: true`, ~206 zones, 192 stations, ~1300
+**Poll for the thing that changed, not a thing that is true either way.** Waiting
+for `measure-seg-label` to appear after committing a line passed instantly — the
+draft's own segments already matched that layer, so the assertion never observed
+the commit. Wait for the draft layer to *empty* instead. A poll that is already
+satisfied is indistinguishable from a passing test.
+
+Healthy at default zoom: `styleLoaded: true`, ~206 zones, 192 stations, ~1000
 total features. Zero of anything means the worker is dead.
+
+Map layers the tools add: `measure-line` / `measure-draft` / `measure-vertex` /
+`measure-seg-label` / `measure-label`, and `plan-line` / `plan-label`.
 
 If anything touched the question list or a layer, **time it with the CPU
 throttled 4x** (`Emulation.setCPUThrottlingRate`). Category switches must be
@@ -113,6 +126,17 @@ band or an empty POI layer is a real signal, not noise to silence.
   `style.load`.
 - **The map redraw effect has an explicit dependency array.** Any new prop that
   affects drawing must be added, or it silently never repaints.
+- **`.list li` sets `align-items: center` and outranks a bare class on the same
+  `li`.** That collapsed the plan's split bar to zero width while every number
+  was correct in the DOM. Match the specificity (`.list.plan li.plancard`), and
+  screenshot new UI rather than trusting the text content.
+- **A flex container drops the whitespace text nodes between its children**, so
+  `<b>{n}</b> yes` renders as `8yes`. Centre text with `text-align`, not flex.
+- **Anything that costs real geometry must not be keyed on the live GPS fix.**
+  The plan's candidate regions anchor on a position that only moves when the
+  player has moved 50 m; a measuring region is a union of disks over every park
+  on the board, and rebuilding three per GPS tick is the old 74-second freeze
+  wearing a new hat.
 - **`ZONE_RADIUS_M` is duplicated** in `app/src/engine/candidates.ts` and
   `pipeline/08-promote-stations.ts`. Rendered zones and the engine's zones must
   agree or the map lies about the count.

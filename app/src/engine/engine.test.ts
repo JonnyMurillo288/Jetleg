@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { FeatureCollection } from 'geojson';
 import { QUESTIONS, QUESTIONS_BY_ID } from './questions';
 import { evaluate, resolveAsk, ZONE_RADIUS_M } from './candidates';
+import { planCandidate } from './plan';
 import { thermometerRegion, nearestFeature, measuringRegion } from './regions';
 import { metres } from './project';
 import type { AskEntry, Answer, Boundary, LngLat, PoiLayer, Station } from './types';
@@ -346,4 +347,55 @@ describe('property: a hider is never eliminated by their own truthful answers', 
 
     expect(failures, `these stations eliminated themselves:\n${failures.join('\n')}`).toEqual([]);
   }, 300_000);
+});
+
+/**
+ * Scenario planning.
+ *
+ * The one property that matters: a preview must describe the question that
+ * will actually be asked. A planning tool that draws a slightly different shape
+ * from the answer's is worse than none, because it is believed.
+ */
+describe('scenario planning', () => {
+  it('previews exactly the region the real answer would produce', () => {
+    const q = QUESTIONS_BY_ID['radar-2000'];
+    const preview = planCandidate(q, CIVIC, stations, layers, boundary);
+    const real = resolveAsk(ask('radar-2000', CIVIC, { kind: 'yesno', value: 'yes' }), q, layers, boundary);
+
+    expect(preview.region).not.toBeNull();
+    expect(JSON.stringify(preview.region!.geometry)).toBe(JSON.stringify(real.region!.geometry));
+  });
+
+  it('reports a split that partitions the surviving zones', () => {
+    const c = planCandidate(QUESTIONS_BY_ID['match-park'], CIVIC, stations, layers, boundary);
+    expect(c.split).not.toBeNull();
+    expect(c.split!.yes + c.split!.no).toBe(stations.length);
+    expect(c.worst).toBe(Math.max(c.split!.yes, c.split!.no));
+    expect(c.best).toBe(Math.min(c.split!.yes, c.split!.no));
+    expect(c.worst!).toBeGreaterThanOrEqual(c.best!);
+  });
+
+  it('previewing never eliminates anything', () => {
+    const before = run([]).alive.length;
+    for (const id of ['radar-1000', 'match-library', 'meas-park']) {
+      planCandidate(QUESTIONS_BY_ID[id], CIVIC, stations, layers, boundary);
+    }
+    expect(run([]).alive.length).toBe(before);
+  });
+
+  it('blocks the questions that cannot be previewed, with a reason', () => {
+    // Needs travel that has not happened yet.
+    expect(planCandidate(QUESTIONS_BY_ID['thermo-1000'], CIVIC, stations, layers, boundary).blocked).toBeTruthy();
+    // Has no fixed radius until the seeker picks one.
+    expect(planCandidate(QUESTIONS_BY_ID['radar-choose'], CIVIC, stations, layers, boundary).blocked).toBeTruthy();
+    // Nothing of the kind exists on the board.
+    expect(planCandidate(QUESTIONS_BY_ID['match-amusement-park'], CIVIC, stations, layers, boundary).blocked).toBeTruthy();
+    // No position to anchor on.
+    expect(planCandidate(QUESTIONS_BY_ID['radar-1000'], null, stations, layers, boundary).blocked).toBeTruthy();
+  });
+
+  it('a blocked candidate still draws nothing rather than drawing something wrong', () => {
+    const c = planCandidate(QUESTIONS_BY_ID['thermo-1000'], CIVIC, stations, layers, boundary);
+    expect(c.region).toBeNull();
+  });
 });

@@ -7,6 +7,8 @@ import { nearestFeature } from '../engine/regions';
 import type { Answer, AskEntry, Category, LngLat, Question } from '../engine/types';
 import { QuestionRow } from './QuestionRow';
 import { AskLog } from './AskLog';
+import { PlanPanel } from './PlanPanel';
+import type { PlanCandidate } from '../engine/plan';
 
 type Evaluated = ReturnType<typeof evaluate>;
 
@@ -18,12 +20,19 @@ export function SeekerPanel(props: {
   origin: LngLat | null;
   pins: { start?: LngLat; end?: LngLat };
   setPins: (p: { start?: LngLat; end?: LngLat }) => void;
+  /** Shortlisted questions, already evaluated against the surviving zones. */
+  planCandidates: PlanCandidate[];
 }) {
-  const { data, round, evaluated, origin, pins, setPins } = props;
-  const [view, setView] = useState<'ask' | 'log'>('ask');
+  const { data, round, evaluated, origin, pins, setPins, planCandidates } = props;
+  const [view, setView] = useState<'ask' | 'plan' | 'log'>('ask');
   const [category, setCategory] = useState<Category>('radar');
+  // One row open at a time: the list is eighty rows on a phone screen, and
+  // jumping here from the plan needs somewhere definite to land.
+  const [openId, setOpenId] = useState<string | null>(null);
   const settings = useGame((s) => s.settings);
   const addAsk = useGame((s) => s.addAsk);
+  const plan = useGame((s) => s.plan);
+  const togglePlan = useGame((s) => s.togglePlanQuestion);
 
   const available = useMemo(
     () => QUESTIONS.filter((q) => q.category === category && q.sizes.includes(settings.gameSize)),
@@ -70,6 +79,9 @@ export function SeekerPanel(props: {
     <div className="panel">
       <div className="seg wide">
         <button className={view === 'ask' ? 'on' : ''} onClick={() => setView('ask')}>Ask</button>
+        <button className={view === 'plan' ? 'on' : ''} onClick={() => setView('plan')}>
+          Plan{plan.length > 0 ? ` (${plan.length})` : ''}
+        </button>
         <button className={view === 'log' ? 'on' : ''} onClick={() => setView('log')}>
           Log ({round.asks.length})
         </button>
@@ -77,6 +89,13 @@ export function SeekerPanel(props: {
 
       {view === 'log' ? (
         <AskLog data={data} round={round} evaluated={evaluated} />
+      ) : view === 'plan' ? (
+        <PlanPanel
+          candidates={planCandidates}
+          alive={evaluated.alive.length}
+          askCounts={askCounts}
+          onAsk={(q) => { setCategory(q.category); setOpenId(q.id); setView('ask'); }}
+        />
       ) : (
         <>
           <div className="chips">
@@ -109,6 +128,10 @@ export function SeekerPanel(props: {
                 origin={origin}
                 pins={pins}
                 data={data}
+                open={openId === q.id}
+                onToggle={() => setOpenId(openId === q.id ? null : q.id)}
+                inPlan={plan.includes(q.id)}
+                onTogglePlan={() => togglePlan(q.id)}
                 onAnswer={(answer, extra) => record(q, answer, extra)}
               />
             ))}

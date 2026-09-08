@@ -42,10 +42,34 @@ export type MapLayers = {
   stationDots: boolean;
 };
 
+export type Units = 'imperial' | 'metric';
+
+/**
+ * A shape drawn with the measuring tool.
+ *
+ * These are planning scratch, not game state: nothing here feeds the
+ * elimination engine. They persist anyway, because a circle drawn to reason
+ * about the next question is worth exactly as much an hour later, and the game
+ * runs all day across a phone that will lock, sleep and reload.
+ */
+export type MeasureShape =
+  | { id: string; kind: 'circle'; center: [number, number]; radiusM: number }
+  | { id: string; kind: 'line'; points: [number, number][] };
+
+export type MeasureState = {
+  /** Which tool the next map tap feeds. 'off' returns taps to the game. */
+  tool: 'off' | 'circle' | 'line';
+  /** Radius for the next circle, in metres. Always metric internally. */
+  radiusM: number;
+  shapes: MeasureShape[];
+  /** Points of the line being drawn, before it is committed. */
+  draft: [number, number][];
+};
+
 type Settings = {
   gameSize: GameSize;
   strictness: Strictness;
-  units: 'imperial' | 'metric';
+  units: Units;
   /** House rule: use supervisor districts as the 4th administrative division. */
   supervisorDistrictsAsAdmin4: boolean;
 };
@@ -84,6 +108,17 @@ type State = {
   armSeekerPin: boolean;
   /** Collapsed sheet gives the map most of the screen. */
   sheetCollapsed: boolean;
+  measure: MeasureState;
+  /**
+   * Questions being compared before one is actually asked, at most three.
+   *
+   * Asking is expensive — every question hands the hider cards — so the choice
+   * of which to ask is the seeker's real decision. This is that decision held
+   * in one place, rather than in the player's head.
+   */
+  plan: string[];
+  /** Draw the plan's candidate regions on the map. */
+  planOnMap: boolean;
 
   setRole: (r: Role) => void;
   startRound: (label?: string) => void;
@@ -105,6 +140,16 @@ type State = {
   setHiderPlaceTarget: (t: 'me' | 'seekers') => void;
   setArmSeekerPin: (v: boolean) => void;
   setSheetCollapsed: (v: boolean) => void;
+  setMeasureTool: (t: MeasureState['tool']) => void;
+  setMeasureRadius: (m: number) => void;
+  measureTap: (ll: [number, number]) => void;
+  finishMeasureLine: () => void;
+  undoMeasurePoint: () => void;
+  removeMeasureShape: (id: string) => void;
+  clearMeasure: () => void;
+  togglePlanQuestion: (questionId: string) => void;
+  clearPlan: () => void;
+  setPlanOnMap: (v: boolean) => void;
   toggleOverlay: (askId: string) => void;
   updateSettings: (patch: Partial<Settings>) => void;
 
@@ -143,6 +188,9 @@ export const useGame = create<State>()(
       hiderPlaceTarget: 'me',
       armSeekerPin: false,
       sheetCollapsed: false,
+      measure: { tool: 'off', radiusM: 500, shapes: [], draft: [] },
+      plan: [],
+      planOnMap: true,
 
       setRole: (role) => {
         const active = get().rounds.find((r) => r.id === get().activeRoundId);
@@ -200,6 +248,56 @@ export const useGame = create<State>()(
         set({ mapLayers: { ...get().mapLayers, [key]: !get().mapLayers[key] } }),
 
       setSheetCollapsed: (sheetCollapsed) => set({ sheetCollapsed }),
+
+      setMeasureTool: (tool) =>
+        // Switching tools abandons a half-drawn line rather than silently
+        // carrying its points into the next shape.
+        set({ measure: { ...get().measure, tool, draft: [] } }),
+
+      setMeasureRadius: (radiusM) => set({ measure: { ...get().measure, radiusM } }),
+
+      measureTap: (ll) => {
+        const m = get().measure;
+        if (m.tool === 'circle') {
+          const shape: MeasureShape = { id: uid(), kind: 'circle', center: ll, radiusM: m.radiusM };
+          set({ measure: { ...m, shapes: [...m.shapes, shape] } });
+        } else if (m.tool === 'line') {
+          set({ measure: { ...m, draft: [...m.draft, ll] } });
+        }
+      },
+
+      // A one-point line is a dot, not a measurement; drop it.
+      finishMeasureLine: () => {
+        const m = get().measure;
+        if (m.draft.length < 2) { set({ measure: { ...m, draft: [] } }); return; }
+        const shape: MeasureShape = { id: uid(), kind: 'line', points: m.draft };
+        set({ measure: { ...m, shapes: [...m.shapes, shape], draft: [] } });
+      },
+
+      undoMeasurePoint: () =>
+        set({ measure: { ...get().measure, draft: get().measure.draft.slice(0, -1) } }),
+
+      removeMeasureShape: (id) =>
+        set({ measure: { ...get().measure, shapes: get().measure.shapes.filter((s) => s.id !== id) } }),
+
+      clearMeasure: () => set({ measure: { ...get().measure, shapes: [], draft: [] } }),
+
+      /**
+       * Three slots, and adding a fourth pushes the oldest out.
+       *
+       * The cap is the point of the feature: comparing everything is what the
+       * question list already does. A shortlist you can hold in your head is
+       * what actually gets a decision made inside the answer clock.
+       */
+      togglePlanQuestion: (questionId) => {
+        const plan = get().plan;
+        if (plan.includes(questionId)) set({ plan: plan.filter((id) => id !== questionId) });
+        else set({ plan: [...plan, questionId].slice(-3) });
+      },
+
+      clearPlan: () => set({ plan: [] }),
+
+      setPlanOnMap: (planOnMap) => set({ planOnMap }),
 
       // Seed from the last GPS fix so switching to manual starts somewhere
       // sensible rather than nowhere.

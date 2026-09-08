@@ -184,6 +184,11 @@ Roughly in value order.
 
 ### Completing the rulebook
 
+- [ ] the selection for pairing down the zones is by the zone point in the middle, not the hiding point.
+- [ ] In the hider "Radar" put the distance from their point to the seeker point at the top of the answer assistant section so they can see how far the seeker is from them
+- [ ] Ensure parity for the voronoi boundaries. Deyoung museum for example if I select "No" show sup off line with the layer voronoi boundaries. But the "Yes" selection shows up the same between layers and what is shaded
+- [ ] also for the hider, they will have to manually selct the start and end point of the seekers so that you can do hot and cold. Use the same mechanics that you used for the measurement tool in toolbar. Put a start point when they are in thermometer , then an end point, put the length and then allow the hotter or colder be the perpendicular line from their movement line
+
 - [ ] **Sea Level** — needs a USGS 3DEP terrain grid. SF spans 0–282 m, so this
       is one of the strongest questions available and it is currently dead.
       ~640 KB as a 30 m `Float32Array`; pipeline step already designed.
@@ -202,6 +207,16 @@ Roughly in value order.
 
 ### Map and UX
 
+- [x] **Measuring toolbar** — circles of a stated radius and free lines with
+      per-leg lengths, drawn on the map and kept across reloads. A circle also
+      reports how many surviving zones it contains, which is a radar preview
+      from any point rather than only from where you are standing.
+      *(`ui/MeasurePanel.tsx`, `map/overlays.ts`)*
+- [x] **Scenario planning** — a Plan layer holding up to three candidate
+      questions, each with its split, its worst case, and its region drawn on
+      the map in its own colour. Regions are built by resolving a synthetic ask
+      through the ordinary engine, so a preview can never disagree with the
+      answer it is previewing. *(`engine/plan.ts`, `ui/PlanPanel.tsx`)*
 - [ ] **Offline basemap** — bundled Protomaps `.pmtiles`. Tiles are only
       runtime-cached today, so a cold start with no signal has no basemap.
 - [ ] Undo/redo for the ask log (delete exists; undo does not)
@@ -262,7 +277,7 @@ no gain the game actually needs.
 ## Suggested order
 
 1. **Phase 4 data quality + Sea Level.** Cheapest, improves the game now,
-   no architecture risk.
+   no architecture risk. The measuring toolbar and the plan layer are done.
 2. **Phase 1 backend, read-only first.** Sync history up; do not make the server
    authoritative for anything.
 3. **Phase 2 accounts and stats.** The actual reason to have a backend.

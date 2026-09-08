@@ -421,3 +421,88 @@ code { background: var(--line); padding: 2px 5px; border-radius: 4px; font-size:
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 .seekerpin button { flex: 0 0 auto; }
+
+/* ------------------------------------------------------- map toolbar */
+
+/* Same anchor the layers control used, now shared by both tools. */
+.maptools {
+  position: absolute;
+  left: 10px;
+  top: calc(env(safe-area-inset-top) + 92px);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  pointer-events: none;
+  max-width: calc(100% - 20px);
+}
+.maptools > * { pointer-events: auto; }
+.maptools-row { display: flex; gap: 6px; }
+
+/* An armed tool changes what a map tap means, so it says so, with the way out. */
+.toolhint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--ink);
+  color: #fff;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
+}
+.toolhint .link { color: #fbbf24; padding: 0; min-height: 0; }
+
+/* Narrower than the layers panel: it sits over the part of the board you are
+   most likely to be measuring, so it gives back what it does not need. */
+.maplayers-panel.measure { max-width: 14.5rem; }
+.maplayers-panel.measure .measures { max-height: 30dvh; overflow-y: auto; }
+.maplayers-panel .seg.wide.flush { margin: 0 0 6px; }
+.maplayers-panel .chips.flush { padding: 0 0 4px; }
+.maplayers-panel .num { width: 5.5rem; }
+.list.measures li { padding: 6px 0; gap: 6px; }
+.sw.measure { background: #111827; }
+
+/* ----------------------------------------------------------- plan */
+
+.qrow.planned { background: #eff6ff; }
+.tag.good { background: #dcfce7; color: #166534; }
+.planbtn { font-size: 13px; min-height: 36px; }
+.planbtn.on { background: #dbeafe; border-color: #93c5fd; color: #1d4ed8; }
+
+.list.plan { padding: 0 12px; }
+/* `.list li` sets align-items:center and outranks a bare .plancard, which
+   collapsed the split bar to zero width. Match its specificity. */
+.list.plan li.plancard {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 10px 0;
+}
+.list.plan li.plancard > p { margin: 0; }
+.row.tight-gap { gap: 6px; }
+
+/* The split as a bar: the shape of it reads faster than the two numbers do. */
+.splitbar {
+  position: relative;
+  display: flex;
+  height: 22px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--line);
+}
+.splitbar .seg-yes { height: 100%; }
+.splitbar .seg-no { height: 100%; background: #cbd5e1; }
+/* Not flex: a flex container drops the whitespace text nodes between the
+   numbers and their labels, and "8yes ·184no" is not a readable split. */
+.splitnums {
+  position: absolute;
+  inset: 0;
+  text-align: center;
+  line-height: 22px;
+  font-size: 11.5px;
+  color: var(--ink);
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff;
+}

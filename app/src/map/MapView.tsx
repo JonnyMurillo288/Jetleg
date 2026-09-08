@@ -52,6 +52,10 @@ type Props = {
   onLongPress?: (ll: LngLat) => void;
   /** The hand-placed position, when manual location is on. */
   manualPoint?: LngLat | null;
+  /** Measuring-tool drawing, prebuilt with its labels. */
+  measureFc: FeatureCollection;
+  /** Candidate regions from the plan, prebuilt in slot colours. */
+  planFc: FeatureCollection;
 };
 
 /**
@@ -226,6 +230,10 @@ export function MapView(props: Props) {
     // it only appeared later, by luck, when some other prop changed.
     props.pins.seekers?.join(','),
     props.hiderStation?.id,
+    // Both are memoized upstream, so identity changes exactly when the drawing
+    // does. Leaving either out means a measurement or a plan that never appears.
+    props.measureFc,
+    props.planFc,
   ]);
 
   if (blocked) {
@@ -269,6 +277,8 @@ function installLayers(m: MLMap, data: GameData) {
   src(m, 'me', EMPTY);
   src(m, 'pins', EMPTY);
   src(m, 'hider', EMPTY);
+  src(m, 'plan', EMPTY);
+  src(m, 'measure', EMPTY);
 
   // Everything outside the board is not in play — dim it hard.
   m.addLayer({
@@ -478,6 +488,97 @@ function installLayers(m: MLMap, data: GameData) {
     paint: { 'text-color': '#78350f', 'text-halo-color': '#fff', 'text-halo-width': 1.5 },
   });
 
+  /**
+   * Plan candidates: outlines only.
+   *
+   * A hypothesis must never render like an answer. The answered overlays are
+   * filled; these are dashed outlines in their own palette, so a glance can
+   * always tell what the board knows from what you are still considering.
+   */
+  m.addLayer({
+    id: 'plan-line',
+    type: 'line',
+    source: 'plan',
+    paint: {
+      'line-color': ['get', 'color'],
+      'line-width': 2.5,
+      'line-dasharray': [2, 1.5],
+      'line-opacity': 0.9,
+    },
+  });
+  m.addLayer({
+    id: 'plan-label',
+    type: 'symbol',
+    source: 'plan',
+    layout: {
+      'text-field': ['get', 'label'],
+      'text-font': LABEL_FONT,
+      'text-size': 12,
+      'text-optional': true,
+      'text-allow-overlap': false,
+      'symbol-placement': 'line',
+      'symbol-spacing': 320,
+    },
+    paint: { 'text-color': ['get', 'color'], 'text-halo-color': '#fff', 'text-halo-width': 2 },
+  });
+
+  /**
+   * The measuring tool. Deliberately monochrome and unfilled: it is scratch
+   * work, not game state, and it has to stay legible on top of everything else.
+   */
+  m.addLayer({
+    id: 'measure-line',
+    type: 'line',
+    source: 'measure',
+    filter: ['!=', ['get', 'draft'], true],
+    paint: { 'line-color': '#111827', 'line-width': 2, 'line-opacity': 0.9 },
+  });
+  m.addLayer({
+    id: 'measure-draft',
+    type: 'line',
+    source: 'measure',
+    filter: ['==', ['get', 'draft'], true],
+    paint: { 'line-color': '#111827', 'line-width': 2, 'line-dasharray': [1.5, 1.5], 'line-opacity': 0.8 },
+  });
+  m.addLayer({
+    id: 'measure-vertex',
+    type: 'circle',
+    source: 'measure',
+    filter: ['==', ['get', 'kind'], 'vertex'],
+    paint: { 'circle-radius': 4, 'circle-color': '#111827', 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 },
+  });
+  // Leg lengths ride along the leg they describe.
+  m.addLayer({
+    id: 'measure-seg-label',
+    type: 'symbol',
+    source: 'measure',
+    filter: ['==', ['get', 'kind'], 'segment'],
+    layout: {
+      'text-field': ['get', 'label'],
+      'text-font': LABEL_FONT,
+      'text-size': 11,
+      'symbol-placement': 'line-center',
+      'text-allow-overlap': false,
+      'text-optional': true,
+    },
+    paint: { 'text-color': '#111827', 'text-halo-color': '#fff', 'text-halo-width': 2 },
+  });
+  m.addLayer({
+    id: 'measure-label',
+    type: 'symbol',
+    source: 'measure',
+    filter: ['==', ['get', 'kind'], 'centre'],
+    layout: {
+      'text-field': ['get', 'label'],
+      'text-font': LABEL_FONT,
+      'text-size': 12,
+      'text-offset': [0, 0.9],
+      'text-anchor': 'top',
+      'text-allow-overlap': true,
+    },
+    paint: { 'text-color': '#111827', 'text-halo-color': '#fff', 'text-halo-width': 2 },
+  });
+
   // The hider's own claimed zone.
   m.addLayer({
     id: 'hider-zone',
@@ -669,6 +770,9 @@ function redraw(m: MLMap, p: Props) {
   if (p.pins.end) pins.features.push(pinAt(p.pins.end, 'end'));
   if (p.pins.seekers) pins.features.push(pinAt(p.pins.seekers, 'seekers'));
   (m.getSource('pins') as GeoJSONSource)?.setData(pins);
+
+  (m.getSource('plan') as GeoJSONSource)?.setData(p.planFc);
+  (m.getSource('measure') as GeoJSONSource)?.setData(p.measureFc);
 
   const hider: FeatureCollection = { type: 'FeatureCollection', features: [] };
   if (p.hiderStation) {
