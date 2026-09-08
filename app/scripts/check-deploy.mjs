@@ -9,8 +9,17 @@
  *
  * So this checks content *types*, not status codes.
  *
+ * It also checks *freshness*, which is a different failure. A stale deploy is
+ * perfectly intact — every file resolves, every content type is right — it is
+ * simply the previous build. That passed every check here until the day
+ * `wrangler pages deploy` started inferring the git branch and quietly
+ * publishing previews instead of production.
+ *
  *   npm run verify:live https://jetleg-sf.pages.dev
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 const url = (process.argv[2] ?? '').replace(/\/$/, '');
 if (!url) {
   console.error('usage: node scripts/check-deploy.mjs https://your-site.pages.dev');
@@ -36,6 +45,33 @@ if (index.status !== 200 || !index.body.includes('<div id="root">')) {
   problems.push(`index.html did not load (HTTP ${index.status})`);
 } else {
   ok.push('index.html');
+}
+
+// --- freshness: does the live shell name the bundle we just built?
+//     Every check below reads the live index.html, so an intact but stale
+//     deploy validates itself perfectly. This is the only check that can see it.
+const localIndexPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist', 'index.html');
+let localIndex = null;
+try {
+  localIndex = readFileSync(localIndexPath, 'utf8');
+} catch {
+  console.log('  note  no local dist/ — checking integrity only, not freshness\n');
+}
+
+const bundleOf = (html) => html.match(/src="(\/?assets\/index-[^"]+\.js)"/)?.[1] ?? null;
+
+if (localIndex) {
+  const want = bundleOf(localIndex);
+  const live = bundleOf(index.body);
+  if (want && live && want.replace(/^\//, '') !== live.replace(/^\//, '')) {
+    problems.push(
+      `STALE: live serves ${live}, local build is ${want}. ` +
+      'The upload succeeded but did not reach this URL — check that it went to the ' +
+      'production branch (`wrangler pages deployment list`), not a preview.',
+    );
+  } else if (want && live) {
+    ok.push(`fresh (${live})`);
+  }
 }
 
 // --- the JS bundle named by the shell

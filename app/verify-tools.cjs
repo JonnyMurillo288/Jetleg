@@ -96,7 +96,10 @@ const check = (name, ok, detail) => {
   const cdp = await ctx.newCDPSession(p);
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
 
-  await p.goto('http://127.0.0.1:4310/', { waitUntil: 'domcontentloaded' });
+  // Point at any deployment: `TARGET=https://jetleg-sf.pages.dev npm run verify:tools`
+  const target = process.env.TARGET || 'http://127.0.0.1:4310/';
+  console.log('target:', target, '\n');
+  await p.goto(target, { waitUntil: 'domcontentloaded' });
   await p.waitForFunction(() => window.__mapReady === true, null, { timeout: 45000 });
   await p.waitForTimeout(4000);
 

@@ -31,6 +31,7 @@ Real examples, all shipped as "verified" before a user caught them:
 | Label glyphs 404'd against the basemap | labels partly rendered | watching the network for 404s |
 | Seeker pin never repainted | state correct, panel text updated | `queryRenderedFeatures` on the pins layer |
 | Plan's split bar collapsed to 0 px wide | DOM correct, numbers present in the text | screenshotting the element and reading computed width |
+| Deploys went to a *preview*, so the apex never moved | wrangler said "Success", the deploy guard said "looks good" | comparing the live bundle hash to `dist/index.html` |
 
 Two of these were mine to begin with *and* I misdiagnosed them twice before
 finding the cause. When a symptom is reported, reproduce it before theorising.
@@ -45,6 +46,7 @@ npm run build      # tsc + vite + check-build.mjs (unresolved imports in output)
 npm test           # 23 engine tests, ~90 s
 npm run verify     # e2e-verify.cjs — drives a real browser, asserts zone counts
 npm run verify:tools  # verify-tools.cjs — measuring toolbar + plan layer, at 4x CPU throttle
+TARGET=https://jetleg-sf.pages.dev/ npm run verify:tools   # same suite, against a deployment
 ```
 
 Both browser harnesses need a server first: `npx vite preview --port 4310`.
@@ -85,6 +87,21 @@ npm run verify:live <url>   # check any deployment on its own
 contents of `index.html`.** A half-uploaded site therefore passes every status
 check while being completely broken. `check-deploy.mjs` checks content *types* —
 the only way to see it. Never judge a deploy by status codes.
+
+**The production branch is `production`, not `main`.** Once this became a git
+repo, `wrangler pages deploy` began inferring the branch from git and publishing
+**previews**: wrangler reported success, `main.jetleg-sf.pages.dev` updated, and
+the apex `jetleg-sf.pages.dev` — the URL people actually open — kept serving the
+old build for two features and a whole session. The `deploy` script now pins
+`--branch production`. If the apex ever looks stale again:
+
+```bash
+npx wrangler pages deployment list --project-name jetleg-sf   # Environment column
+```
+
+`check-deploy.mjs` now also compares the live bundle hash against
+`dist/index.html`, because every other check in it reads the live `index.html`
+and so validates a stale deploy against itself.
 
 When a user reports a problem on a deployed URL, **fetch the live site and
 compare its asset hashes to the local build before theorising.** A stale deploy
