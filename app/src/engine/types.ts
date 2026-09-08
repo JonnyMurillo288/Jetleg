@@ -70,6 +70,12 @@ export type AskEntry = {
   origin: LngLat;
   /** Thermometer only: where they ended up. */
   destination?: LngLat;
+  /**
+   * Radius chosen at ask time, in metres, for the questions that have no fixed
+   * one — radar's "Choose". Without it the engine fell back to the question's
+   * own `distanceM`, which for that question does not exist.
+   */
+  distanceM?: number;
   answer: Answer;
   note?: string;
   /** Excluded from elimination but kept in the log. */

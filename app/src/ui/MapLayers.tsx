@@ -1,5 +1,7 @@
 import { useGame, type MapLayers as MapLayerState } from '../store/game';
 import { LAYER_DEFS, type GameData } from '../data/load';
+import { ZONE_RADIUS_M } from '../engine/candidates';
+import { formatDistance } from './units';
 
 /**
  * Which layers are drawn on the map.
@@ -22,10 +24,11 @@ export function LayersPanel({
   const toggleMap = useGame((s) => s.toggleMapLayer);
   const visible = useGame((s) => s.visibleLayers);
   const toggleLayer = useGame((s) => s.toggleLayer);
+  const units = useGame((s) => s.settings.units);
 
   const board: { key: keyof MapLayerState; label: string; hint: string }[] = [
     { key: 'outOfPlay', label: 'Out of play', hint: 'Shade everywhere the answers rule out' },
-    { key: 'zoneBuffers', label: 'Zone buffers', hint: '500 m circle around each station' },
+    { key: 'zoneBuffers', label: 'Zone buffers', hint: `${formatDistance(ZONE_RADIUS_M, units)} circle around each station` },
     { key: 'stationDots', label: 'Station dots', hint: 'The stations themselves' },
   ];
 

@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react';
+import { useGame } from '../store/game';
+import { formatDistance } from './units';
+import type { Units } from '../store/game';
 
 /**
  * Environment self-check.
@@ -22,12 +25,13 @@ type Check = {
 export function Diagnostics() {
   const [checks, setChecks] = useState<Check[]>([]);
   const [running, setRunning] = useState(true);
+  const units = useGame((s) => s.settings.units);
 
   useEffect(() => {
     let cancelled = false;
-    run().then((c) => { if (!cancelled) { setChecks(c); setRunning(false); } });
+    run(units).then((c) => { if (!cancelled) { setChecks(c); setRunning(false); } });
     return () => { cancelled = true; };
-  }, []);
+  }, [units]);
 
   const failing = checks.filter((c) => c.state === 'fail');
 
@@ -134,7 +138,7 @@ function certificateLikely(checks: Check[]): boolean {
   return failed('Web workers') || failed('Secure origin');
 }
 
-async function run(): Promise<Check[]> {
+async function run(units: Units): Promise<Check[]> {
   const out: Check[] = [];
 
   // --- secure origin
@@ -157,7 +161,7 @@ async function run(): Promise<Check[]> {
   out.push(checkWebGL());
 
   // --- geolocation
-  out.push(await checkGeolocation());
+  out.push(await checkGeolocation(units));
 
   // --- service worker (offline support; not fatal)
   out.push(
@@ -246,7 +250,7 @@ function checkWebGL(): Check {
   }
 }
 
-async function checkGeolocation(): Promise<Check> {
+async function checkGeolocation(units: Units): Promise<Check> {
   if (!('geolocation' in navigator)) {
     return { label: 'Location permission', state: 'fail', detail: 'No geolocation API in this browser.' };
   }
@@ -275,7 +279,7 @@ async function checkGeolocation(): Promise<Check> {
     navigator.geolocation.getCurrentPosition(
       (pos) => resolve({
         label: 'Location permission', state: 'pass',
-        detail: `Fix acquired, ±${Math.round(pos.coords.accuracy)} m.`,
+        detail: `Fix acquired, ±${formatDistance(pos.coords.accuracy, units)}.`,
       }),
       (err) => resolve(
         err.code === err.PERMISSION_DENIED

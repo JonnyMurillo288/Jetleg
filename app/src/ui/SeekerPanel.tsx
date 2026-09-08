@@ -5,6 +5,8 @@ import { CATEGORY_META, CATEGORY_ORDER, QUESTIONS, QUESTIONS_BY_ID } from '../en
 import { previewSplit, type evaluate } from '../engine/candidates';
 import { nearestFeature } from '../engine/regions';
 import type { Answer, AskEntry, Category, LngLat, Question } from '../engine/types';
+import { metres } from '../engine/project';
+import { formatDistance } from './units';
 import { QuestionRow } from './QuestionRow';
 import { AskLog } from './AskLog';
 import { PlanPanel } from './PlanPanel';
@@ -115,7 +117,7 @@ export function SeekerPanel(props: {
           </p>
 
           {category === 'thermometer' && (
-            <ThermometerBar here={origin} pins={pins} setPins={setPins} />
+            <ThermometerBar here={origin} pins={pins} setPins={setPins} units={settings.units} />
           )}
 
           <ul className="qlist">
@@ -146,17 +148,12 @@ function ThermometerBar(props: {
   here: LngLat | null;
   pins: { start?: LngLat; end?: LngLat };
   setPins: (p: { start?: LngLat; end?: LngLat }) => void;
+  units: 'imperial' | 'metric';
 }) {
-  const { here, pins, setPins } = props;
-  const dist =
-    pins.start && pins.end
-      ? Math.round(
-          Math.hypot(
-            (pins.end[0] - pins.start[0]) * 88_000,
-            (pins.end[1] - pins.start[1]) * 111_000,
-          ),
-        )
-      : null;
+  const { here, pins, setPins, units } = props;
+  // Projected, not a degree-scaling guess. The old inline hypot used fixed
+  // metres-per-degree factors and disagreed with every other distance on screen.
+  const dist = pins.start && pins.end ? metres(pins.start, pins.end) : null;
 
   return (
     <div className="thermo pad-x">
@@ -174,7 +171,7 @@ function ThermometerBar(props: {
           ? 'Drop a start pin, send it to the hider, then travel.'
           : !pins.end
             ? 'Travelled far enough? Drop the end pin and send it.'
-            : `Travelled ${dist} m as the crow flies. Now log hotter or colder.`}
+            : `Travelled ${formatDistance(dist!, units)} as the crow flies. Now log hotter or colder.`}
       </p>
     </div>
   );

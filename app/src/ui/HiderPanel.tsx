@@ -93,7 +93,8 @@ export function HiderPanel(props: {
       <div className="pad-x">
         {!hiderStation ? (
           <p className="muted">
-            Tap a station on the map to claim it. Your hiding zone is the 500 m circle around it.
+            Tap a station on the map to claim it. Your hiding zone is the{' '}
+            {formatDistance(ZONE_RADIUS_M, settings.units)} circle around it.
           </p>
         ) : (
           <div className="zonecard">
@@ -105,7 +106,7 @@ export function HiderPanel(props: {
               </div>
             </div>
             <div className={drift !== null && drift > ZONE_RADIUS_M ? 'drift bad' : 'drift'}>
-              {drift === null ? '—' : `${drift} m`}
+              {drift === null ? '—' : formatDistance(drift, settings.units)}
               <span className="muted small"> from centre</span>
             </div>
             <button className="link" onClick={() => setHiderStation(undefined)}>Change</button>
@@ -113,7 +114,10 @@ export function HiderPanel(props: {
         )}
 
         {drift !== null && drift > ZONE_RADIUS_M && (
-          <p className="warntext">You are outside your hiding zone. Head back inside the 500 m circle.</p>
+          <p className="warntext">
+            You are outside your hiding zone. Head back inside the{' '}
+            {formatDistance(ZONE_RADIUS_M, settings.units)} circle.
+          </p>
         )}
       </div>
 
@@ -525,20 +529,21 @@ function computeAnswer(
   const near = nearestFeature(here, layer);
   if (!near) return null;
   const name = (near.feature.properties?.name ?? near.feature.properties?.id ?? 'unnamed') as string;
-  const km = (near.distanceM / 1000).toFixed(2);
-  const mi = (near.distanceM / 1609.34).toFixed(2);
+  const away = formatDistance(near.distanceM, units);
 
   if (q.category === 'matching') {
-    return { kind: 'fact', text: `Your nearest ${q.label.toLowerCase()} is ${name} (${km} km / ${mi} mi). Answer YES only if that is the one they named.` };
+    return { kind: 'fact', text: `Your nearest ${q.label.toLowerCase()} is ${name} (${away}). Answer YES only if that is the one they named.` };
   }
   if (q.category === 'measuring') {
-    return { kind: 'fact', text: `You are ${km} km / ${mi} mi from your nearest ${q.label.toLowerCase()} (${name}). Closer than their number means CLOSER.` };
+    return { kind: 'fact', text: `You are ${away} from your nearest ${q.label.toLowerCase()} (${name}). Closer than their number means CLOSER.` };
   }
   if (q.category === 'tentacle') {
     const reach = q.distanceM ?? 0;
     return near.distanceM <= reach
-      ? { kind: 'fact', text: `Nearest is ${name}, ${km} km away.` }
-      : { kind: 'warn', text: `Nearest is ${name} at ${km} km — beyond the ${reach / 1000} km reach, so answer "not within reach".` };
+      ? { kind: 'fact', text: `Nearest is ${name}, ${away}.` }
+      // The reach is the question's own printed number, so it stays as the
+      // rulebook states it; only the measured distance converts.
+      : { kind: 'warn', text: `Nearest is ${name} at ${away} — beyond the ${q.label.replace(/^.*within /, '')} reach, so answer "not within reach".` };
   }
   return null;
 }

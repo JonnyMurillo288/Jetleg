@@ -1,5 +1,6 @@
 import { useGame } from '../store/game';
 import { describeAccuracy, isStale, useFixAge, type LocationState } from '../location/useLocation';
+import { formatDistance } from './units';
 
 export function TopBar(props: {
   loc: LocationState;
@@ -51,6 +52,7 @@ function LocationLine(props: {
 }) {
   const { loc } = props;
   const ageSeconds = useFixAge(loc.fix);
+  const units = useGame((s) => s.settings.units);
   const manual = useGame((s) => s.manualLocation);
   const setManualEnabled = useGame((s) => s.setManualEnabled);
   const role = useGame((s) => s.role);
@@ -74,7 +76,7 @@ function LocationLine(props: {
             <>Acquiring location… <button className="link" onClick={loc.start}>Retry</button></>
           ) : (
             <>
-              GPS ±{Math.round(loc.fix.accuracyM)} m ({describeAccuracy(loc.fix.accuracyM)})
+              GPS ±{formatDistance(loc.fix.accuracyM, units)} ({describeAccuracy(loc.fix.accuracyM)})
               {isStale(ageSeconds) && <> · fix is {ageSeconds}s old</>}
             </>
           )}

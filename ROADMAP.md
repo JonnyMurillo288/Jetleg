@@ -203,6 +203,21 @@ Roughly in value order.
 
 ### Map and UX
 
+- [x] **One unit for every measured distance** — a Miles & feet / Km & metres
+      toggle in Map drives GPS accuracy, drift from the zone centre, the
+      measuring tool, the hider's distance to the seekers, thermometer travel,
+      and the ask log. Readouts used to mix all three: `±18 m` in the top bar,
+      `0.42 km / 0.26 mi` in the hider's assistant, `1,240 m` in the
+      thermometer. **Rulebook text is deliberately excluded** — "within 2 km" is
+      what both players say out loud, so converting it would put the seeker and
+      the hider on different numbers. Guarded by `npm run verify:units`, which
+      sweeps every surface in metric mode and fails if any imperial unit
+      survives.
+- [x] **Radar “Choose” actually works** — the typed distance was held in local
+      state and never passed to the answer, so the engine fell back to the
+      question's own radius, which that question does not have. It drew a circle
+      of `undefined` and constrained nothing. The radius now travels on the ask
+      entry, and is typed in the player's own unit.
 - [x] **Hider radar readout** — the distance to the seekers sits at the top of
       the answer assistant, and each radar question now states the truthful
       answer outright. Radar previously showed the hider nothing at all.

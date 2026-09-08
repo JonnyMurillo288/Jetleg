@@ -40,6 +40,8 @@ export type PlanCandidate = {
   blocked?: string;
   /** What the yes side actually means, in words. */
   note?: string;
+  /** Measuring: the seeker's own distance to their nearest, raw metres. */
+  radiusM?: number;
 };
 
 /** The answer used to build the preview region for each category. */
@@ -113,5 +115,6 @@ export function planCandidate(
     ...counts,
     region: resolved.region,
     note: chosen.note ?? resolved.note,
+    radiusM: resolved.radiusM,
   };
 }

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import type { GameData } from '../data/load';
 import type { Answer, AskEntry, LngLat, Question } from '../engine/types';
 import type { QuestionStatus } from './SeekerPanel';
+import { useGame } from '../store/game';
+import { formatDistance, fromRadiusInput, radiusUnit, toRadiusInput } from './units';
 
 export function QuestionRow(props: {
   question: Question;
@@ -79,6 +81,7 @@ function Answers(props: {
   onAnswer: (a: Answer, extra?: Partial<AskEntry>) => void;
 }) {
   const { q, pins, data, chooseM, setChooseM, onAnswer } = props;
+  const units = useGame((s) => s.settings.units);
 
   if (q.category === 'photo') {
     return (
@@ -137,24 +140,43 @@ function Answers(props: {
   }
 
   // radar + matching are yes/no
+  const chosen = q.id === 'radar-choose';
   return (
     <div className="col">
-      {q.id === 'radar-choose' && (
-        <label className="row small">
-          Distance
-          <input
-            type="number"
-            min={50}
-            step={50}
-            value={chooseM}
-            onChange={(e) => setChooseM(Number(e.target.value))}
-          />
-          m
-        </label>
+      {chosen && (
+        <>
+          <label className="row small">
+            Distance
+            <input
+              className="num"
+              type="number"
+              min={1}
+              step={units === 'metric' ? 50 : 100}
+              value={toRadiusInput(chooseM, units)}
+              onChange={(e) => setChooseM(fromRadiusInput(Number(e.target.value) || 0, units))}
+            />
+            {radiusUnit(units)}
+          </label>
+          <p className="muted small">
+            Ask “are you within {formatDistance(chooseM, units)} of me?”. This distance is
+            recorded with the answer — it is the only radius the question has.
+          </p>
+        </>
       )}
       <div className="row">
-        <button className="yes" onClick={() => onAnswer({ kind: 'yesno', value: 'yes' })}>Yes</button>
-        <button className="no" onClick={() => onAnswer({ kind: 'yesno', value: 'no' })}>No</button>
+        {/*
+          The chosen radius travels with the entry. Without it the engine fell
+          back to the question's own distance, which for "Choose" is undefined —
+          so this question drew a circle of no radius and constrained nothing.
+        */}
+        <button
+          className="yes"
+          onClick={() => onAnswer({ kind: 'yesno', value: 'yes' }, chosen ? { distanceM: chooseM } : undefined)}
+        >Yes</button>
+        <button
+          className="no"
+          onClick={() => onAnswer({ kind: 'yesno', value: 'no' }, chosen ? { distanceM: chooseM } : undefined)}
+        >No</button>
       </div>
     </div>
   );

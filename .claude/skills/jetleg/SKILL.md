@@ -48,6 +48,7 @@ npm test           # 23 engine tests, ~90 s
 npm run verify     # e2e-verify.cjs — drives a real browser, asserts zone counts
 npm run verify:tools  # verify-tools.cjs — measuring toolbar + plan layer, at 4x CPU throttle
 npm run verify:rules  # verify-rules.cjs — elimination rule, voronoi parity, hider radar + thermometer
+npm run verify:units  # verify-units.cjs — one unit everywhere; sweeps every surface in metric
 TARGET=https://jetleg-sf.pages.dev/ npm run verify:tools   # any suite, against a deployment
 ```
 
@@ -143,6 +144,16 @@ band or an empty POI layer is a real signal, not noise to silence.
   the ground around the de Young. Build them with `utmPolygon`, which
   interpolates along every edge before unprojecting. Four points per edge was
   enough to fix it; it uses sixteen.
+- **Two kinds of distance, and only one of them converts.** Rule constants are
+  the rulebook's own words — "within 2 km", the radar and tentacle radii — and
+  both players say them out loud, so they stay metric always. Distances the app
+  *computes* follow `settings.units` and must go through `formatDistance`. A
+  literal `m` or `km` in JSX is almost always a bug; `verify:units` sweeps the
+  whole screen in metric mode and fails on any surviving `mi`/`ft`.
+- **Formatting belongs at the edge, never in the engine.** `candidates.ts` used
+  to build the string `seeker is 0.42 km from their nearest`, which printed in
+  the ask log next to a panel reading miles. Resolved asks now carry `radiusM`
+  as a number.
 - **The engine must reuse the cells the map draws**, via `layer.cells`, not
   compute its own. A matching question *is* a question about those polygons, and
   two implementations of one shape is how they came to disagree in front of a

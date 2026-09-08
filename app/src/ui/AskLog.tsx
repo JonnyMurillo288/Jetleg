@@ -3,6 +3,7 @@ import { useGame, type Round } from '../store/game';
 import { QUESTIONS_BY_ID } from '../engine/questions';
 import type { evaluate } from '../engine/candidates';
 import type { Answer } from '../engine/types';
+import { formatDistance } from './units';
 
 type Evaluated = ReturnType<typeof evaluate>;
 
@@ -13,6 +14,7 @@ type Evaluated = ReturnType<typeof evaluate>;
  */
 export function AskLog(props: { data: GameData; round: Round; evaluated: Evaluated }) {
   const { round, evaluated } = props;
+  const units = useGame((s) => s.settings.units);
   const removeAsk = useGame((s) => s.removeAsk);
   const updateAsk = useGame((s) => s.updateAsk);
   const toggleOverlay = useGame((s) => s.toggleOverlay);
@@ -51,6 +53,8 @@ export function AskLog(props: { data: GameData; round: Round; evaluated: Evaluat
                   {new Date(a.askedAt).toLocaleTimeString()}
                   {killCount.has(a.id) && ` · removed ${killCount.get(a.id)} zones`}
                   {resolved?.note && ` · ${resolved.note}`}
+                  {resolved?.radiusM !== undefined &&
+                    ` · you were ${formatDistance(resolved.radiusM, units)} from your nearest`}
                   {!resolved?.region && !a.disabled && ' · no constraint'}
                 </div>
               </div>

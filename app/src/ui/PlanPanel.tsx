@@ -1,5 +1,7 @@
 import { useGame } from '../store/game';
 import { PLAN_COLORS, type PlanCandidate } from '../engine/plan';
+import { formatDistance } from './units';
+import { ZONE_RADIUS_M } from '../engine/candidates';
 import type { Question } from '../engine/types';
 
 /**
@@ -18,6 +20,7 @@ export function PlanPanel(props: {
   onAsk: (q: Question) => void;
 }) {
   const { candidates, alive, askCounts, onAsk } = props;
+  const units = useGame((s) => s.settings.units);
   const planOnMap = useGame((s) => s.planOnMap);
   const setPlanOnMap = useGame((s) => s.setPlanOnMap);
   const toggle = useGame((s) => s.togglePlanQuestion);
@@ -95,6 +98,12 @@ export function PlanPanel(props: {
               )}
 
               {c.note && <p className="muted small">{c.note}</p>}
+              {c.radiusM !== undefined && (
+                <p className="muted small">
+                  You are {formatDistance(c.radiusM, units)} from your nearest — that is the
+                  radius this question draws.
+                </p>
+              )}
 
               <div className="row">
                 <button onClick={() => onAsk(c.question)}>Ask this</button>
@@ -110,8 +119,9 @@ export function PlanPanel(props: {
 
       <p className="muted small pad-x">
         Splits count station centre points, the same as the Ask list. Elimination itself
-        stays conservative — a zone survives unless its whole 500 m circle contradicts
-        the answer — so the real count after asking can be a little higher.
+        follows the rule set in Map — with “Whole zone” a candidate survives unless its
+        whole {formatDistance(ZONE_RADIUS_M, units)} circle contradicts the answer, so the
+        real count after asking can be a little higher.
       </p>
     </div>
   );

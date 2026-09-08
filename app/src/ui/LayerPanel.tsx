@@ -1,6 +1,8 @@
 import type { GameData } from '../data/load';
 import { LAYER_DEFS } from '../data/load';
 import { useGame } from '../store/game';
+import { UNIT_CHOICES, formatDistance } from './units';
+import { ZONE_RADIUS_M } from '../engine/candidates';
 
 /**
  * Layer list. Each point layer gets two switches: the points themselves, and
@@ -73,6 +75,33 @@ export function LayerPanel({ data }: { data: GameData }) {
       <h3>Rules</h3>
 
       {/*
+        One setting for every distance the app works out. Question text is not
+        included and never will be: "within 2 km" is what both players say to
+        each other, and converting it would put the seeker and the hider on
+        different numbers.
+      */}
+      <label className="setting">
+        <span>
+          Distances
+          <span className="muted small">
+            Everything the app measures — your distance to the seekers, drift from your
+            zone centre, GPS accuracy, the measuring tool. Question text stays metric, as
+            the rulebook prints it.
+          </span>
+        </span>
+        <div className="seg">
+          {UNIT_CHOICES.map((u) => (
+            <button
+              key={u.value}
+              className={settings.units === u.value ? 'on' : ''}
+              onClick={() => update({ units: u.value })}
+              title={u.hint}
+            >{u.label}</button>
+          ))}
+        </div>
+      </label>
+
+      {/*
         Named for what it tests rather than for how cautious it is. "Conservative"
         and "Strict" described the engine's attitude; "Zone centre" and "Whole
         zone" describe the thing on the map you are ruling in or out.
@@ -83,7 +112,7 @@ export function LayerPanel({ data }: { data: GameData }) {
           <span className="muted small">
             {settings.strictness === 'strict'
               ? 'Zone centre: the station in the middle either fits the answer or it does not. Matches the numbers in the Ask list.'
-              : 'Whole zone: kept unless every point in the 500 m circle contradicts the answer. Never rules out the true zone, but narrows slowly.'}
+              : `Whole zone: kept unless every point in the ${formatDistance(ZONE_RADIUS_M, settings.units)} circle contradicts the answer. Never rules out the true zone, but narrows slowly.`}
           </span>
         </span>
         <div className="seg">

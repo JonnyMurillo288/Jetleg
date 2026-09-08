@@ -133,6 +133,15 @@ export type ResolvedAsk = {
   /** Set when the answer was "no"/"further"/"colder" and region is the yes-area. */
   inverted: boolean;
   note?: string;
+  /**
+   * Measuring: how far the seeker was from their nearest feature.
+   *
+   * Raw metres, not a formatted string. The engine has no business knowing
+   * whether this player reads miles or kilometres — that is a display choice,
+   * and baking it in here is how "0.42 km" ended up printed in a log next to
+   * "0.26 mi" elsewhere on the same screen.
+   */
+  radiusM?: number;
 };
 
 /**
@@ -149,6 +158,7 @@ function signature(entry: AskEntry): string {
     entry.questionId,
     entry.origin.map((n) => n.toFixed(6)).join(','),
     entry.destination?.map((n) => n.toFixed(6)).join(',') ?? '',
+    entry.distanceM ?? '',
     a.kind,
     a.value ?? a.poiId ?? '',
   ].join('|');
@@ -190,7 +200,11 @@ function computeAsk(
 
   switch (question.category) {
     case 'radar': {
-      const r = radarRegion(entry.origin, question.distanceM!, boundary);
+      // "Choose" carries no fixed radius, so the one picked when the question
+      // was asked is the only one there is.
+      const radiusM = entry.distanceM ?? question.distanceM;
+      if (!radiusM) return base;
+      const r = radarRegion(entry.origin, radiusM, boundary);
       return { ...base, region: r, inverted: entry.answer.kind === 'yesno' && entry.answer.value === 'no' };
     }
     case 'thermometer': {
@@ -220,13 +234,15 @@ function computeAsk(
         ...base,
         region: m.region,
         inverted: entry.answer.kind === 'closerFurther' && entry.answer.value === 'further',
-        note: `seeker is ${(m.radiusM / 1000).toFixed(2)} km from their nearest`,
+        radiusM: m.radiusM,
       };
     }
     case 'tentacle': {
       const layer = question.layer ? layers[question.layer] : undefined;
       if (!layer || entry.answer.kind !== 'tentacle') return base;
-      const r = tentacleRegion(entry.origin, layer, question.distanceM!, entry.answer.poiId, boundary);
+      const reachM = entry.distanceM ?? question.distanceM;
+      if (!reachM) return base;
+      const r = tentacleRegion(entry.origin, layer, reachM, entry.answer.poiId, boundary);
       // A "not within reach" answer means the hider is outside the whole disk.
       return { ...base, region: r, inverted: entry.answer.poiId === null };
     }
