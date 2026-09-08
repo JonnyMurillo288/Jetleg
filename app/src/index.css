@@ -1,0 +1,423 @@
+:root {
+  --bg: #f8fafc;
+  --panel: #ffffff;
+  --ink: #0f172a;
+  --muted: #64748b;
+  --line: #e2e8f0;
+  --accent: #b45309;
+  --yes: #059669;
+  --no: #dc2626;
+  --warn: #b45309;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font: 15px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  height: 100%;
+  height: 100dvh;
+  /* The grid must not be widened by its contents; a fixed-width top bar was
+     forcing a 434px page and clipping the right edge on every phone. */
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+/* ---------------------------------------------------------------- top bar */
+
+.topbar {
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  padding: env(safe-area-inset-top) 8px 6px;
+  min-width: 0;
+}
+
+.topbar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 8px;
+  min-width: 0;
+}
+
+/* Segments keep their size; the counter in the middle absorbs what is left. */
+.topbar-row .seg { flex: 0 0 auto; }
+.topbar-row .seg button {
+  padding: 6px 9px;
+  font-size: 13px;
+  min-height: 36px;
+}
+
+.count {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: center;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.count strong { font-size: 17px; color: var(--accent); }
+
+.gps { font-size: 12px; color: var(--muted); padding: 4px 2px 0; min-width: 0; }
+.gps.warn { color: var(--warn); }
+.gps.bad { color: var(--no); }
+
+/* ------------------------------------------------------------------- map */
+
+.map { width: 100%; height: 100%; min-width: 0; }
+
+/* ----------------------------------------------------------------- sheet */
+
+.sheet {
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  max-height: 52dvh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
+  padding-bottom: env(safe-area-inset-bottom);
+  -webkit-overflow-scrolling: touch;
+}
+
+.panel { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
+.pad { padding: 12px; }
+.pad-x { padding-left: 12px; padding-right: 12px; }
+
+h2 { font-size: 18px; margin: 0 0 4px; }
+h3 { font-size: 14px; margin: 16px 0 6px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.pad-x h3 { padding: 0; }
+
+.muted { color: var(--muted); }
+.small { font-size: 12.5px; }
+.warntext { color: var(--warn); font-size: 13px; }
+p { margin: 6px 0; }
+
+/* --------------------------------------------------------------- controls */
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  min-height: 40px; /* thumb-sized: this is used while walking */
+}
+button:disabled { opacity: .45; cursor: not-allowed; }
+
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg.wide { display: flex; margin: 0 12px; }
+.seg button { border: 0; border-radius: 0; background: transparent; flex: 1; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--ink); color: #fff; }
+
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.big { width: 100%; margin-top: 8px; }
+button.yes { border-color: var(--yes); color: var(--yes); flex: 1; font-weight: 600; }
+button.no { border-color: var(--no); color: var(--no); flex: 1; font-weight: 600; }
+
+button.link {
+  border: 0;
+  background: none;
+  padding: 4px 6px;
+  min-height: 32px;
+  color: var(--accent);
+  text-align: left;
+}
+button.link.danger { color: var(--no); }
+button.link.grow { flex: 1; }
+
+input[type="number"] { font: inherit; width: 90px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }
+select { font: inherit; padding: 10px; border: 1px solid var(--line); border-radius: 8px; width: 100%; min-height: 44px; }
+
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.row.tight { gap: 0; flex-wrap: nowrap; }
+.col { display: flex; flex-direction: column; gap: 8px; }
+
+/* ----------------------------------------------------------------- chips */
+
+.chips { display: flex; gap: 6px; overflow-x: auto; padding: 0 12px 2px; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { white-space: nowrap; border-radius: 999px; padding: 6px 12px; min-height: 34px; font-size: 13px; }
+.chip.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.chip.on .muted { color: #cbd5e1; }
+
+/* ------------------------------------------------------------- questions */
+
+.qlist { list-style: none; margin: 0; padding: 0; }
+.qrow { border-top: 1px solid var(--line); }
+.qrow.dead .qlabel { color: var(--muted); text-decoration: line-through; }
+.qrow.weak .qlabel { color: var(--muted); }
+
+.qhead {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  padding: 10px 12px;
+  text-align: left;
+}
+.qlabel { font-weight: 500; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.qsplit { font-size: 13px; color: var(--muted); white-space: nowrap; }
+.qsplit b { color: var(--ink); }
+
+.cost { font-size: 11px; background: #fef3c7; color: #92400e; border-radius: 4px; padding: 1px 5px; }
+.tag { font-size: 11px; background: var(--line); color: var(--muted); border-radius: 4px; padding: 2px 6px; }
+.tag.warn { background: #fef3c7; color: #92400e; }
+
+.qbody { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 6px; }
+.qtext { font-style: italic; margin: 0; }
+
+.hint { border-radius: 8px; padding: 10px; margin: 4px 0; font-size: 14px; }
+.hint.fact { background: #ecfdf5; border: 1px solid #a7f3d0; }
+.hint.warn { background: #fffbeb; border: 1px solid #fde68a; }
+
+/* ------------------------------------------------------------------ list */
+
+.list { list-style: none; margin: 0; padding: 0; }
+.list li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); }
+.list.layers li { padding: 2px 0; border: 0; }
+.list.layers label { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; }
+.log .answer { font-weight: 700; color: var(--accent); }
+.grow { flex: 1; min-width: 0; }
+
+.setting { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.setting > span { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+
+.zonecard { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.zonecard > div:first-child { flex: 1; min-width: 0; }
+.drift { font-weight: 600; text-align: right; }
+.drift.bad { color: var(--no); }
+
+.thermo { border-top: 1px solid var(--line); padding-top: 8px; }
+
+.fatal { padding: 32px; }
+code { background: var(--line); padding: 2px 5px; border-radius: 4px; font-size: 13px; }
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1020; --panel: #111827; --ink: #e5e7eb; --muted: #94a3b8;
+    --line: #1f2937; --accent: #f59e0b; --yes: #34d399; --no: #f87171; --warn: #fbbf24;
+    color-scheme: dark;
+  }
+  .hint.fact { background: #052e26; border-color: #065f46; }
+  .hint.warn { background: #2b2005; border-color: #78350f; }
+  .cost, .tag.warn { background: #78350f; color: #fde68a; }
+  .seg button.on { background: var(--accent); color: #111827; }
+}
+
+/* ------------------------------------------------------- diagnostics + map */
+
+.map.blocked {
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: var(--bg);
+  text-align: center;
+}
+.map.blocked > div { max-width: 34ch; }
+
+.list.checks li { align-items: flex-start; }
+.dot {
+  width: 10px; height: 10px; border-radius: 50%;
+  margin-top: 6px; flex: 0 0 auto; background: var(--muted);
+}
+.dot.pass { background: var(--yes); }
+.dot.fail { background: var(--no); }
+.dot.warn { background: var(--warn); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+
+/* ------------------------------------------------- collapsible sheet + map */
+
+/*
+ * Collapsed, the sheet shrinks to just its handle and the map takes ~85% of the
+ * screen. Reading the board is most of the game, so it needs to be the default
+ * posture once you know which question you are asking.
+ */
+.sheet-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  padding: 6px 12px 4px;
+  min-height: 34px;
+  color: var(--muted);
+  font-size: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--panel);
+}
+.grip {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+  flex: 0 0 auto;
+}
+.app.collapsed .sheet {
+  max-height: 15dvh;
+  overflow: hidden;
+}
+.app.collapsed .sheet > :not(.sheet-handle) { display: none; }
+
+/* ---------------------------------------------------------- map layer control */
+
+.maplayers {
+  position: absolute;
+  left: 10px;
+  top: calc(env(safe-area-inset-top) + 92px);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  pointer-events: none;
+}
+.maplayers > * { pointer-events: auto; }
+
+.maplayers-btn {
+  min-height: 34px;
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 999px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .18);
+}
+.maplayers-btn.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+
+.maplayers-panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .18);
+  max-width: 15rem;
+}
+.maplayers-panel label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  min-height: 36px;
+}
+.maplayers-panel label > span { display: flex; flex-direction: column; line-height: 1.25; }
+.maplayers-panel input { margin-top: 3px; flex: 0 0 auto; }
+
+.maplayers-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+  padding-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; }
+.sw.alive { background: #f59e0b; }
+.sw.dead { background: #0f172a; opacity: .45; }
+
+/* The map fills its grid row; the control is positioned against the app. */
+.app { position: relative; }
+
+/* --------------------------------------------------------- layer rows */
+
+.list.layers .layerrow { display: block; padding: 4px 0; }
+.list.layers .layerrow label { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; }
+.list.layers .layerrow label.sub {
+  padding-left: 24px;
+  min-height: 32px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.list.layers .grow { flex: 1; min-width: 0; }
+
+.maplayers-section {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+  padding-top: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--muted);
+}
+.maplayers-section .muted { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.maplayers-scroll { max-height: 34dvh; overflow-y: auto; margin-top: 2px; }
+.maplayers-panel label.tight { min-height: 32px; padding: 3px 0; }
+
+.seekerpin {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+.seekerpin > span { display: flex; flex-direction: column; }
+
+/* ------------------------------------------------- GPS / manual location */
+
+.gpsrow { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.gps.manual { color: var(--accent); }
+
+.gpstoggle {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 3px 10px;
+  font-size: 12px;
+  border-radius: 999px;
+  line-height: 1;
+}
+.gpstoggle.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+.manualhint {
+  font-size: 12px;
+  color: var(--accent);
+  padding: 3px 2px 0;
+}
+
+.placetarget {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 0 2px;
+}
+.placetarget .seg button { font-size: 13px; padding: 6px 10px; min-height: 36px; }
+
+/* Armed state for placing the seekers' pin — the map is waiting for a tap. */
+.seekerpin.armed {
+  border-style: solid;
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.seekerpin button { flex: 0 0 auto; }

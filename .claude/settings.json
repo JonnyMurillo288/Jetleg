@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cp /tmp/rg.bak src/ui/RoundGate.tsx)",
+      "Bash(npm run *)",
+      "Bash(curl -s -o /dev/null -w '  %{http_code}\\\\n' --max-time 25 https://jetleg-sf.pages.dev/)",
+      "Bash(curl -s --max-time 25 https://jetleg-sf.pages.dev/)",
+      "Bash(timeout 150 node scripts/check-deploy.mjs https://jetleg-sf.pages.dev)"
+    ]
+  }
+}

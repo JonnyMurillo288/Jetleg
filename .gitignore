@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Build output
+app/dist/
+
+# Pipeline scratch: raw Overpass/GTFS downloads, re-fetchable on demand
+pipeline/.cache/
+pipeline/input/gtfs/*.zip
+
+# The Jet Lag rulebook PDF is copyrighted commercial material — keep it local
+*Rulebook*.pdf
+937613966-*.pdf
+
+# Local overrides and editor noise
+*.local
+.DS_Store

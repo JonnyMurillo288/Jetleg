@@ -1,0 +1,35 @@
+{
+  "name": "jetleg-pipeline",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "boundary": "tsx 01-boundary.ts",
+    "stations": "tsx 02-stations.ts",
+    "districts": "tsx 03-districts.ts",
+    "pois": "tsx 04-pois.ts",
+    "linear": "tsx 05-linear.ts",
+    "all": "npm run boundary && npm run districts && npm run stations && npm run pois && npm run linear && npm run voronoi",
+    "voronoi": "tsx 06-voronoi.ts",
+    "stations-gtfs": "tsx 07-stations-gtfs.ts",
+    "promote": "tsx 08-promote-stations.ts"
+  },
+  "dependencies": {
+    "@turf/area": "^7.2.0",
+    "@turf/bbox": "^7.2.0",
+    "@turf/boolean-point-in-polygon": "^7.2.0",
+    "@turf/circle": "^7.2.0",
+    "@turf/distance": "^7.2.0",
+    "@turf/helpers": "^7.2.0",
+    "@turf/intersect": "^7.4.0",
+    "@turf/line-intersect": "^7.4.0",
+    "@turf/simplify": "^7.2.0",
+    "@turf/union": "^7.2.0",
+    "d3-delaunay": "^6.0.4",
+    "proj4": "^2.22.0"
+  },
+  "devDependencies": {
+    "@types/geojson": "^7946.0.16",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2"
+  }
+}

@@ -1,0 +1,13 @@
+I am createing a game app that will play the game JetLag. This is a game of hide and seek throughout a given city. For this specific first game it will be in san francisco. The goal of the game is to only go around the city, to hide, using public transit at given major stop locations (major bus stops and all train stops). The seekers then ask questions to the hiders to triangulate them. Such as "Is my nearest park, your nearest park?" These are answered through "veronoi" maps that find the closest in an area.
+
+Features of the app "Hiders and seekers can toggle on and off different filters and it willl allow them to see the filters. When a question like this is asked, the user will be able to have a hitor miss option that will then adjust a given map area to shade out "not in this area" 
+
+Additionally there are hotter or colder lines, where you start one location, move 1/2 mile and ask hotter or colder. This should shade out from a straigt line perpendicular to the users straigt line movement. Ex. Heading from N->S, draw a line the halfway point E/W and shade top half as "not in this zone" if they are getting warmer. 
+
+The layers can be found on this existing web map. https://app.atlas.co/shared/2CFagzDAW1NEUYBTteYd?loc=-122.4801%2C37.7817%2C13.6715z&public=true
+
+The questions can be found on this pdf. /home/jonnym/Desktop/JetLeg/937613966-Jet-Lag-Hide-Seek-Rulebook.pdf
+
+I want you to come up with the feature list, hosting, backend, and specific features to implement the game. Make sure you lay out all the layers and all the relevant rules for the mapping
+
+

@@ -1,0 +1,35 @@
+{
+  "_readme": [
+    "Manual corrections to OSM categorization, applied by 04-pois.ts.",
+    "",
+    "The rulebook expects players to resolve miscategorizations with the '5 or more",
+    "Google Reviews' test, or by agreement. Neither works offline mid-game, so the",
+    "shipped layer files are the ruling and this file is where that ruling is made.",
+    "",
+    "REVIEW THIS BEFORE GAME DAY. Both sides should agree on it in advance, because",
+    "an argument about whether a goat pen counts as a zoo is exactly what these",
+    "rules exist to prevent.",
+    "",
+    "'exclude' drops a feature by exact name. 'note' is for humans only."
+  ],
+
+  "zoos": {
+    "exclude": ["City Grazing Goat Cuddle Zone"],
+    "note": "A goat-petting area on a industrial lot, not a zoo. Leaves the SF Zoo as the only entry, which makes the zoo MATCHING question always-yes — that is the correct outcome for San Francisco."
+  },
+
+  "amusementParks": {
+    "exclude": ["House of Air", "Boom & Bust Course", "Skystar Wheel - Fisherman’s Wharf"],
+    "note": "House of Air is a trampoline park; Boom & Bust is a mini-golf style course; the Skystar Wheel was a temporary installation. San Francisco has had no amusement park since Playland closed in 1972, so this category is genuinely NULL here."
+  },
+
+  "aquariums": {
+    "exclude": [],
+    "note": "Steinhart (Cal Academy, Golden Gate Park) and Aquarium of the Bay (Pier 39). Both legitimate, and they give a clean east/west split."
+  },
+
+  "golfCourses": {
+    "exclude": [],
+    "note": "All eight are real outdoor courses. Olympic Club straddles the county line; its clubhouse is inside SF so it stays."
+  }
+}

@@ -1,0 +1,30 @@
+# Cache rules for Cloudflare Pages and Netlify.
+#
+# The service worker is what makes the app work in a tunnel, and a stale one is
+# worse than none: it will keep serving an old build forever. So sw.js and the
+# HTML shell must always revalidate, while the hashed asset files never need to.
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Layer data is not content-hashed, so it has to be revalidated. It only changes
+# when the pipeline is re-run, and 304s are cheap.
+/data/*
+  Cache-Control: public, max-age=0, must-revalidate
+
+# Never cache the service worker or its manifest — this is how a new deploy
+# actually reaches a phone that already has the app installed.
+/sw.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/registerSW.js
+  Cache-Control: public, max-age=0, must-revalidate
+
+/manifest.webmanifest
+  Cache-Control: public, max-age=0, must-revalidate
+
+/index.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+/
+  Cache-Control: public, max-age=0, must-revalidate
