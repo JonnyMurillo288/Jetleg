@@ -1,4 +1,4 @@
-import type { Feature, Polygon, MultiPolygon, Point, LineString, MultiLineString } from 'geojson';
+import type { Feature, FeatureCollection, Polygon, MultiPolygon, Point, LineString, MultiLineString } from 'geojson';
 
 export type Mode = 'rail' | 'metro' | 'bus' | 'cablecar' | 'ferry';
 export type GameSize = 'small' | 'medium' | 'large';
@@ -89,6 +89,16 @@ export type PoiLayer = {
   /** Points for POIs measured to their map icon; lines for coastline etc. */
   kind: 'point' | 'line';
   features: Feature<Point | LineString | MultiLineString>[];
+  /**
+   * The layer's precomputed Voronoi cells, when it has them.
+   *
+   * The same file the map draws. A matching question *is* a question about
+   * these cells, so the engine answering it with a separately computed shape is
+   * how the map and the elimination came to disagree — visibly, on the boundary
+   * of the de Young's cell. Carrying the cells on the layer makes the two the
+   * same object rather than two things that ought to match.
+   */
+  cells?: FeatureCollection;
 };
 
 export type Boundary = Feature<Polygon | MultiPolygon>;

@@ -72,24 +72,29 @@ export function LayerPanel({ data }: { data: GameData }) {
 
       <h3>Rules</h3>
 
+      {/*
+        Named for what it tests rather than for how cautious it is. "Conservative"
+        and "Strict" described the engine's attitude; "Zone centre" and "Whole
+        zone" describe the thing on the map you are ruling in or out.
+      */}
       <label className="setting">
         <span>
-          Elimination
+          Rule zones out by
           <span className="muted small">
-            {settings.strictness === 'conservative'
-              ? 'Conservative: a zone is ruled out only if its whole 500 m circle contradicts the answer. Never wrong.'
-              : 'Strict: tests the station centre only. Narrows faster, but can rule out the true zone.'}
+            {settings.strictness === 'strict'
+              ? 'Zone centre: the station in the middle either fits the answer or it does not. Matches the numbers in the Ask list.'
+              : 'Whole zone: kept unless every point in the 500 m circle contradicts the answer. Never rules out the true zone, but narrows slowly.'}
           </span>
         </span>
         <div className="seg">
           <button
-            className={settings.strictness === 'conservative' ? 'on' : ''}
-            onClick={() => update({ strictness: 'conservative' })}
-          >Conservative</button>
-          <button
             className={settings.strictness === 'strict' ? 'on' : ''}
             onClick={() => update({ strictness: 'strict' })}
-          >Strict</button>
+          >Zone centre</button>
+          <button
+            className={settings.strictness === 'conservative' ? 'on' : ''}
+            onClick={() => update({ strictness: 'conservative' })}
+          >Whole zone</button>
         </div>
       </label>
 

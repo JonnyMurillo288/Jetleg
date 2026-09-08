@@ -6,6 +6,7 @@ import { nearestFeature, distanceToFeatureM } from '../engine/regions';
 import { metres } from '../engine/project';
 import { ZONE_RADIUS_M, type evaluate } from '../engine/candidates';
 import type { Answer, AskEntry, Category, LngLat, Question, Station } from '../engine/types';
+import { formatDistance } from './units';
 
 type Evaluated = ReturnType<typeof evaluate>;
 
@@ -43,6 +44,9 @@ export function HiderPanel(props: {
   const addAsk = useGame((s) => s.addAsk);
   const removeAsk = useGame((s) => s.removeAsk);
   const endRound = useGame((s) => s.endRound);
+  const thermo = useGame((s) => s.hiderThermo);
+  const armThermo = useGame((s) => s.armHiderThermo);
+  const clearThermo = useGame((s) => s.clearHiderThermo);
 
   const here = origin;
   const seekers = round.seekerPin ?? null;
@@ -57,14 +61,17 @@ export function HiderPanel(props: {
     [category, settings.gameSize],
   );
 
-  const log = (q: Question, answer: Answer) => {
-    if (!seekers) return;
+  const log = (q: Question, answer: Answer, extra?: Partial<AskEntry>) => {
+    // A thermometer carries its own start and end; everything else is measured
+    // from where the seekers are standing.
+    if (!seekers && !extra?.origin) return;
     const entry: AskEntry = {
       id: newAskId(),
       questionId: q.id,
       askedAt: Date.now(),
-      origin: seekers,
+      origin: seekers!,
       answer,
+      ...extra,
     };
     addAsk(entry);
   };
@@ -185,13 +192,110 @@ export function HiderPanel(props: {
             })}
           </div>
 
+          {category === 'radar' && (
+            <RadarDistance here={here} seekers={seekers} units={settings.units} />
+          )}
+
+          {category === 'thermometer' && (
+            <ThermoRun
+              thermo={thermo}
+              units={settings.units}
+              onArm={armThermo}
+              onClear={clearThermo}
+            />
+          )}
+
           <ul className="qlist">
             {questions.map((q) => (
-              <HiderAnswer key={q.id} q={q} data={data} here={here} seekers={seekers} onLog={log} />
+              <HiderAnswer
+                key={q.id}
+                q={q}
+                data={data}
+                here={here}
+                seekers={seekers}
+                units={settings.units}
+                thermo={thermo}
+                onLog={log}
+              />
             ))}
           </ul>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * How far the seekers are, right now.
+ *
+ * Every radar question is "are you within D of me?", so the hider's answer is
+ * one comparison — and until they can see the distance, they are eyeballing it
+ * off the map under a five-minute clock. This is the whole question, answered
+ * once, above the list.
+ */
+function RadarDistance(props: { here: LngLat | null; seekers: LngLat | null; units: 'imperial' | 'metric' }) {
+  const { here, seekers, units } = props;
+  if (!here || !seekers) {
+    return (
+      <p className="pad-x muted small">
+        {!seekers ? 'Drop the seekers’ pin to see how far away they are.' : 'Waiting for a GPS fix.'}
+      </p>
+    );
+  }
+  const d = metres(here, seekers);
+  return (
+    <div className="pad-x">
+      <div className="hint fact">
+        The seekers are <b>{formatDistance(d, units)}</b> away.
+        <span className="muted small"> Answer YES to any radar at or above that.</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The seekers' thermometer run, placed by hand.
+ *
+ * A thermometer is the one question a single seeker pin cannot answer: it needs
+ * both ends of their travel, which they send over. Same mechanics as the
+ * measuring tool — arm a point, tap the map — and the leg is drawn and labelled
+ * by that tool's own renderer, so the two read identically.
+ */
+function ThermoRun(props: {
+  thermo: { start?: LngLat; end?: LngLat; arm: 'none' | 'start' | 'end' };
+  units: 'imperial' | 'metric';
+  onArm: (w: 'none' | 'start' | 'end') => void;
+  onClear: () => void;
+}) {
+  const { thermo, units, onArm, onClear } = props;
+  const travelled = thermo.start && thermo.end ? metres(thermo.start, thermo.end) : null;
+
+  return (
+    <div className="thermo pad-x">
+      <div className="row">
+        <button
+          className={thermo.arm === 'start' ? 'primary' : ''}
+          onClick={() => onArm(thermo.arm === 'start' ? 'none' : 'start')}
+        >
+          {thermo.arm === 'start' ? 'Tap the map…' : thermo.start ? 'Move start' : 'Set start'}
+        </button>
+        <button
+          className={thermo.arm === 'end' ? 'primary' : ''}
+          onClick={() => onArm(thermo.arm === 'end' ? 'none' : 'end')}
+        >
+          {thermo.arm === 'end' ? 'Tap the map…' : thermo.end ? 'Move end' : 'Set end'}
+        </button>
+        {(thermo.start || thermo.end) && (
+          <button className="link" onClick={onClear}>Clear</button>
+        )}
+      </div>
+      <p className="muted small">
+        {travelled !== null
+          ? `They travelled ${formatDistance(travelled, units)}. Hotter or colder cuts the board along the perpendicular of that line.`
+          : !thermo.start
+            ? 'Place where the seekers started, then where they ended.'
+            : 'Now place where they ended.'}
+      </p>
     </div>
   );
 }
@@ -275,17 +379,23 @@ function HiderAnswer(props: {
   data: GameData;
   here: LngLat | null;
   seekers: LngLat | null;
-  onLog: (q: Question, a: Answer) => void;
+  units: 'imperial' | 'metric';
+  thermo: { start?: LngLat; end?: LngLat };
+  onLog: (q: Question, a: Answer, extra?: Partial<AskEntry>) => void;
 }) {
-  const { q, data, here, seekers, onLog } = props;
+  const { q, data, here, seekers, units, thermo, onLog } = props;
   const [open, setOpen] = useState(false);
-  const answer = useMemo(() => (open && here ? computeAnswer(q, data, here) : null), [open, here, q, data]);
+  const answer = useMemo(
+    () => (open && here ? computeAnswer(q, data, here, seekers, units) : null),
+    [open, here, q, data, seekers, units],
+  );
 
   /**
-   * Only binary answers can be replayed from a single seeker position. A
-   * thermometer needs the seeker's start *and* end pins, which the hider only
-   * has once the seeker sends both — out of scope for the exposure view.
+   * A thermometer is logged from its own two points, not from the seekers' pin,
+   * so it is handled separately below.
    */
+  const thermoReady = q.category === 'thermometer' && !!thermo.start && !!thermo.end;
+
   const loggable: { answer: Answer; label: string; tone: 'yes' | 'no' }[] | null =
     q.answerKind === 'yesno'
       ? [
@@ -314,6 +424,27 @@ function HiderAnswer(props: {
             <p className={`hint ${answer.kind}`}>{answer.text}</p>
           ) : (
             <p className="muted small">Waiting for a GPS fix.</p>
+          )}
+
+          {q.category === 'thermometer' && (
+            <>
+              <p className="muted small">Log the answer you gave, to track what they now know:</p>
+              <div className="row">
+                <button
+                  className="yes"
+                  disabled={!thermoReady}
+                  onClick={() => onLog(q, { kind: 'hotterColder', value: 'hotter' }, { origin: thermo.start!, destination: thermo.end! })}
+                >Hotter</button>
+                <button
+                  className="no"
+                  disabled={!thermoReady}
+                  onClick={() => onLog(q, { kind: 'hotterColder', value: 'colder' }, { origin: thermo.start!, destination: thermo.end! })}
+                >Colder</button>
+              </div>
+              {!thermoReady && (
+                <p className="muted small">Place the seekers' start and end points above first.</p>
+              )}
+            </>
           )}
 
           {loggable && (
@@ -354,7 +485,27 @@ function computeAnswer(
   q: Question,
   data: GameData,
   here: LngLat,
+  seekers: LngLat | null,
+  units: 'imperial' | 'metric',
 ): { kind: 'fact' | 'warn'; text: string } | null {
+  /*
+   * Radar is the one category the assistant can answer outright, and it used to
+   * say nothing at all: the hider knows where they are and where the seekers
+   * are, so the answer is a comparison, not a judgement.
+   */
+  if (q.category === 'radar') {
+    if (!seekers) return { kind: 'warn', text: 'Drop the seekers’ pin to get this answer computed.' };
+    const d = metres(here, seekers);
+    if (!q.distanceM) {
+      return { kind: 'fact', text: `They are ${formatDistance(d, units)} away. Answer against whatever distance they chose.` };
+    }
+    const within = d <= q.distanceM;
+    return {
+      kind: 'fact',
+      text: `They are ${formatDistance(d, units)} away, so the answer is ${within ? 'YES' : 'NO'}.`,
+    };
+  }
+
   if (q.category === 'photo') {
     return { kind: 'fact', text: 'Take the shot to the spec above. If the subject is not in your zone, "I cannot answer" is valid — and you still draw a card.' };
   }

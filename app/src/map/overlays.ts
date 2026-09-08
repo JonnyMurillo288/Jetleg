@@ -14,7 +14,18 @@ const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] };
  * point of the tool, and the labels depend on the player's unit setting — which
  * the map has no business knowing about.
  */
-export function buildMeasureFc(measure: MeasureState, units: Units): FeatureCollection {
+export function buildMeasureFc(
+  measure: MeasureState,
+  units: Units,
+  /**
+   * An extra path drawn with the measuring tool's own styling.
+   *
+   * The hider's thermometer run is a two-point measurement — the seekers' start
+   * and end — and it should look and read exactly like one. Reusing the tool's
+   * rendering means one set of styles, one label format, one thing to keep right.
+   */
+  extraPath?: [number, number][],
+): FeatureCollection {
   const features: Feature[] = [];
 
   for (const shape of measure.shapes) {
@@ -33,6 +44,7 @@ export function buildMeasureFc(measure: MeasureState, units: Units): FeatureColl
 
   // The line being drawn, so a half-finished measurement is still readable.
   if (measure.draft.length) features.push(...pathFeatures(measure.draft, units, true));
+  if (extraPath?.length) features.push(...pathFeatures(extraPath, units, false));
 
   return { type: 'FeatureCollection', features };
 }
@@ -62,8 +74,14 @@ function pathFeatures(points: [number, number][], units: Units, draft: boolean):
     out.push({ type: 'Feature', properties: { kind: 'vertex', draft }, geometry: { type: 'Point', coordinates: p } });
   }
 
-  // One running total, at the far end — where your eye already is.
-  if (points.length > 1) {
+  /*
+   * One running total, at the far end — where your eye already is.
+   *
+   * Only for a path with more than one leg. On a two-point line the total is
+   * the leg, so it printed the same distance twice, and on the hider's
+   * thermometer run it landed on top of the "end" pin label.
+   */
+  if (points.length > 2) {
     out.push({
       type: 'Feature',
       properties: { kind: 'centre', label: `total ${formatDistance(total, units)}` },

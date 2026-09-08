@@ -40,6 +40,8 @@ export default function App() {
   const armSeekerPin = useGame((s) => s.armSeekerPin);
   const measure = useGame((s) => s.measure);
   const measureTap = useGame((s) => s.measureTap);
+  const hiderThermo = useGame((s) => s.hiderThermo);
+  const placeHiderThermo = useGame((s) => s.placeHiderThermo);
   const plan = useGame((s) => s.plan);
   const planOnMap = useGame((s) => s.planOnMap);
   const round = useActiveRound();
@@ -151,9 +153,18 @@ export default function App() {
 
   // Both drawings are built here, where the unit setting lives, and handed to
   // the map as finished GeoJSON.
+  // The hider's thermometer run rides along with the measuring tool's drawing,
+  // so the seekers' travel is labelled with its length in the same hand.
+  const thermoPath = useMemo(
+    () =>
+      role === 'hider' && hiderThermo.start && hiderThermo.end
+        ? [hiderThermo.start, hiderThermo.end]
+        : undefined,
+    [role, hiderThermo.start, hiderThermo.end],
+  );
   const measureFc = useMemo(
-    () => buildMeasureFc(measure, settings.units),
-    [measure, settings.units],
+    () => buildMeasureFc(measure, settings.units, thermoPath),
+    [measure, settings.units, thermoPath],
   );
   const planFc = useMemo(
     () => buildPlanFc(planCandidates, planOnMap),
@@ -199,7 +210,11 @@ export default function App() {
         mapLayers={mapLayers}
         fix={manual.enabled ? null : loc.fix}
         manualPoint={manual.enabled ? manual.coords ?? null : null}
-        pins={role === 'hider' ? { seekers: round?.seekerPin } : pins}
+        pins={
+          role === 'hider'
+            ? { seekers: round?.seekerPin, start: hiderThermo.start, end: hiderThermo.end }
+            : pins
+        }
         hiderStation={hiderStation}
         measureFc={measureFc}
         planFc={planFc}
@@ -210,6 +225,7 @@ export default function App() {
           // a station — otherwise a circle can never be centred on one.
           if (measure.tool !== 'off') { measureTap(ll); return; }
           if (role !== 'hider' || !round || round.endedAt) return;
+          if (hiderThermo.arm !== 'none') { placeHiderThermo(ll); return; }
           if (armSeekerPin) setSeekerPin(ll);
           else setHiderStation(id);
         }}
@@ -221,6 +237,7 @@ export default function App() {
         onMapClick={(ll) => {
           if (measure.tool !== 'off') { measureTap(ll); return; }
           if (role !== 'hider' || !round || round.endedAt) return;
+          if (hiderThermo.arm !== 'none') { placeHiderThermo(ll); return; }
           if (armSeekerPin || !manual.enabled) setSeekerPin(ll);
         }}
         onLongPress={(ll) => {

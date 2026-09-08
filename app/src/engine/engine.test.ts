@@ -5,7 +5,7 @@ import type { FeatureCollection } from 'geojson';
 import { QUESTIONS, QUESTIONS_BY_ID } from './questions';
 import { evaluate, resolveAsk, ZONE_RADIUS_M } from './candidates';
 import { planCandidate } from './plan';
-import { thermometerRegion, nearestFeature, measuringRegion } from './regions';
+import { thermometerRegion, nearestFeature, measuringRegion, matchingRegion } from './regions';
 import { metres } from './project';
 import type { AskEntry, Answer, Boundary, LngLat, PoiLayer, Station } from './types';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
@@ -38,6 +38,14 @@ beforeAll(() => {
     coastline: load('coastline', 'coastline.geojson', 'line'),
     railStations: load('railStations', 'rail-stations.geojson'),
   };
+
+  // The app hands every layer its precomputed cells; tests must exercise the
+  // same path, or they verify geometry the app never runs.
+  for (const key of ['parks', 'libraries', 'museums', 'hospitals', 'railStations']) {
+    try {
+      layers[key].cells = read<FeatureCollection>(`voronoi-${key}.geojson`);
+    } catch { /* layer has no diagram */ }
+  }
 });
 
 const ask = (questionId: string, origin: LngLat, answer: Answer, destination?: LngLat): AskEntry => ({
@@ -397,5 +405,108 @@ describe('scenario planning', () => {
   it('a blocked candidate still draws nothing rather than drawing something wrong', () => {
     const c = planCandidate(QUESTIONS_BY_ID['thermo-1000'], CIVIC, stations, layers, boundary);
     expect(c.region).toBeNull();
+  });
+});
+
+/**
+ * Voronoi parity.
+ *
+ * A matching question is a question about the cells the map draws. When the
+ * engine computed its own version of those cells, the two disagreed — visibly,
+ * on the de Young's boundary, and by 9% of the ground around it. These tests
+ * hold both halves of the fix: the engine now uses the shipped cells, and the
+ * carve it falls back to is no longer bent by the projection.
+ */
+describe('voronoi parity', () => {
+  const CELL_ORIGINS: LngLat[] = [
+    [-122.4686, 37.7715], // de Young, Golden Gate Park
+    CIVIC,
+    [-122.4862, 37.7599], // Sunset
+    [-122.3937, 37.7955], // Embarcadero
+  ];
+
+  /** Fraction of a sampled grid where "inside the cell" disagrees with "nearest is the focus". */
+  function misclassified(region: any, layer: PoiLayer, origin: LngLat, focusName: string) {
+    let wrong = 0;
+    let n = 0;
+    for (let dx = -0.025; dx <= 0.025; dx += 0.0012) {
+      for (let dy = -0.02; dy <= 0.02; dy += 0.001) {
+        const p: LngLat = [origin[0] + dx, origin[1] + dy];
+        const pt = point(p);
+        if (!booleanPointInPolygon(pt, boundary as any)) continue;
+        n++;
+        const truth = nearestFeature(p, layer)!.feature.properties?.name === focusName;
+        if (booleanPointInPolygon(pt, region) !== truth) wrong++;
+      }
+    }
+    return { wrong, n };
+  }
+
+  it('the matching region is exactly the cell the map draws', () => {
+    for (const key of ['museums', 'parks', 'libraries']) {
+      const layer = layers[key] ?? { ...layers.museums };
+      if (!layer?.cells) continue;
+      for (const origin of CELL_ORIGINS) {
+        const m = matchingRegion(origin, layer, boundary);
+        if (!m?.region) continue;
+        const nearest = nearestFeature(origin, layer)!;
+        const id = nearest.feature.properties?.id;
+        const drawn = layer.cells.features.find((f) => f.properties?.id === id);
+        expect(drawn, `${key} has no drawn cell for ${id}`).toBeTruthy();
+        // Same object, not merely a similar shape.
+        expect(m.region.geometry).toBe(drawn!.geometry);
+      }
+    }
+  });
+
+  it('agrees with nearest-POI truth everywhere it is sampled', () => {
+    for (const key of ['museums', 'parks']) {
+      const layer = layers[key];
+      const origin = CELL_ORIGINS[0];
+      const focusName = nearestFeature(origin, layer)!.feature.properties?.name as string;
+      const m = matchingRegion(origin, layer, boundary)!;
+      const { wrong, n } = misclassified(m.region as any, layer, origin, focusName);
+      expect(n).toBeGreaterThan(500);
+      expect(wrong, `${key}: ${wrong}/${n} points on the wrong side`).toBe(0);
+    }
+  });
+
+  it('the carve fallback is right too, for layers with no shipped diagram', () => {
+    // Same layer, cells withheld: this is the path a layer without a
+    // precomputed diagram takes, and the path that was bent by the projection.
+    const bare: PoiLayer = { ...layers.museums, cells: undefined };
+    const origin = CELL_ORIGINS[0];
+    const focusName = nearestFeature(origin, bare)!.feature.properties?.name as string;
+    const m = matchingRegion(origin, bare, boundary)!;
+    const { wrong, n } = misclassified(m.region as any, bare, origin, focusName);
+    expect(wrong, `carve put ${wrong}/${n} points on the wrong side`).toBe(0);
+  });
+
+  it('the thermometer bisector stays a bisector far from the midpoint', () => {
+    // Same 60 km construction as the half-plane, so it had the same bend.
+    const start: LngLat = [-122.4194, 37.7700];
+    const end: LngLat = [-122.4194, 37.7880];
+    const region = thermometerRegion(start, end, true, boundary)!;
+    expect(region).toBeTruthy();
+
+    // Anywhere on the board, "inside the hotter half" must mean "closer to the
+    // end than to the start". Sample the whole city, not just the midpoint.
+    let wrong = 0;
+    let n = 0;
+    for (let lon = -122.51; lon <= -122.36; lon += 0.004) {
+      for (let lat = 37.71; lat <= 37.81; lat += 0.003) {
+        const p: LngLat = [lon, lat];
+        const pt = point(p);
+        if (!booleanPointInPolygon(pt, boundary as any)) continue;
+        n++;
+        const closerToEnd = metres(p, end) < metres(p, start);
+        const inside = booleanPointInPolygon(pt, region as any);
+        // Points within a metre of the bisector are ties; skip them.
+        if (Math.abs(metres(p, end) - metres(p, start)) < 1) continue;
+        if (inside !== closerToEnd) wrong++;
+      }
+    }
+    expect(n).toBeGreaterThan(200);
+    expect(wrong, `${wrong}/${n} points on the wrong side of the bisector`).toBe(0);
   });
 });

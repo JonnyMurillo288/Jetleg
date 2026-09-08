@@ -11,6 +11,7 @@
     "test": "vitest run",
     "verify": "node e2e-verify.cjs",
     "verify:tools": "node verify-tools.cjs",
+    "verify:rules": "node verify-rules.cjs",
     "phone": "HTTPS=1 vite --host",
     "tunnel": "npm run build && node scripts/tunnel.mjs",
     "deploy": "npm run build && npx wrangler pages deploy dist --project-name jetleg-sf --branch production && sleep 6 && node scripts/check-deploy.mjs https://jetleg-sf.pages.dev",

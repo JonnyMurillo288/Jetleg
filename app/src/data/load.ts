@@ -90,6 +90,17 @@ export async function loadGameData(): Promise<GameData> {
   );
   const voronoi = Object.fromEntries(cells) as Record<string, FeatureCollection>;
 
+  /*
+   * Hand each layer its own cells.
+   *
+   * The map and the elimination engine then read the same polygons, rather than
+   * each deriving its own and being expected to agree. They did not: the
+   * runtime carve misclassified 9% of the ground around the de Young.
+   */
+  for (const [key, fc] of Object.entries(voronoi)) {
+    if (layers[key] && fc.features.length) layers[key].cells = fc;
+  }
+
   return {
     boundary: boundaryFc.features[0] as Boundary,
     bbox,

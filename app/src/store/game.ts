@@ -108,6 +108,15 @@ type State = {
   armSeekerPin: boolean;
   /** Collapsed sheet gives the map most of the screen. */
   sheetCollapsed: boolean;
+  /**
+   * Hider only: where the seekers started and ended a thermometer run.
+   *
+   * A thermometer is the one question the hider cannot answer from a single
+   * seeker position — it needs both ends of the seekers' travel, which they
+   * send over. So the hider places two points by hand, exactly as they would
+   * with the measuring tool, and `arm` says which one the next map tap sets.
+   */
+  hiderThermo: { start?: [number, number]; end?: [number, number]; arm: 'none' | 'start' | 'end' };
   measure: MeasureState;
   /**
    * Questions being compared before one is actually asked, at most three.
@@ -140,6 +149,9 @@ type State = {
   setHiderPlaceTarget: (t: 'me' | 'seekers') => void;
   setArmSeekerPin: (v: boolean) => void;
   setSheetCollapsed: (v: boolean) => void;
+  armHiderThermo: (which: 'none' | 'start' | 'end') => void;
+  placeHiderThermo: (ll: [number, number]) => void;
+  clearHiderThermo: () => void;
   setMeasureTool: (t: MeasureState['tool']) => void;
   setMeasureRadius: (m: number) => void;
   measureTap: (ll: [number, number]) => void;
@@ -177,7 +189,20 @@ export const useGame = create<State>()(
         // medium, 120 km² says small. Station count drives search complexity,
         // and the 500 m zone radius is identical either way.
         gameSize: 'medium',
-        strictness: 'conservative',
+        /**
+         * Pare zones down by the station in the middle, not by the hider's
+         * possible position anywhere in the circle.
+         *
+         * This is how the table plays it, and it is what makes the numbers in
+         * the Ask list mean what they appear to mean: the split preview counts
+         * centre points, so under the old default a question previewing "1 / 47"
+         * would leave 48 zones standing and look broken. The trade-off is real
+         * and stated in Map → settings — a hider standing near the edge of
+         * their circle can truthfully give an answer that rules their own zone
+         * out — and 'conservative' is still there for anyone who wants the
+         * never-wrong reading.
+         */
+        strictness: 'strict',
         units: 'imperial',
         supervisorDistrictsAsAdmin4: false,
       },
@@ -188,6 +213,7 @@ export const useGame = create<State>()(
       hiderPlaceTarget: 'me',
       armSeekerPin: false,
       sheetCollapsed: false,
+      hiderThermo: { arm: 'none' },
       measure: { tool: 'off', radiusM: 500, shapes: [], draft: [] },
       plan: [],
       planOnMap: true,
@@ -248,6 +274,18 @@ export const useGame = create<State>()(
         set({ mapLayers: { ...get().mapLayers, [key]: !get().mapLayers[key] } }),
 
       setSheetCollapsed: (sheetCollapsed) => set({ sheetCollapsed }),
+
+      armHiderThermo: (arm) => set({ hiderThermo: { ...get().hiderThermo, arm } }),
+
+      // Placing disarms: two taps in a row should not silently move the point
+      // you just set, which is the failure the seeker pin had.
+      placeHiderThermo: (ll) => {
+        const t = get().hiderThermo;
+        if (t.arm === 'none') return;
+        set({ hiderThermo: { ...t, [t.arm]: ll, arm: 'none' } });
+      },
+
+      clearHiderThermo: () => set({ hiderThermo: { arm: 'none' } }),
 
       setMeasureTool: (tool) =>
         // Switching tools abandons a half-drawn line rather than silently
@@ -350,7 +388,19 @@ export const useGame = create<State>()(
     {
       name: 'jetleg-sf',
       storage: createJSONStorage(() => idbStorage),
-      version: 1,
+      version: 2,
+      /**
+       * A stored setting outlives a change of default, so v1 devices would have
+       * kept eliminating by the whole 500 m circle no matter what the code now
+       * says. Move them, since the old value was never chosen — it was just
+       * what shipped.
+       */
+      migrate: (persisted: any, version: number) => {
+        if (version < 2 && persisted?.settings?.strictness === 'conservative') {
+          persisted.settings.strictness = 'strict';
+        }
+        return persisted;
+      },
     },
   ),
 );

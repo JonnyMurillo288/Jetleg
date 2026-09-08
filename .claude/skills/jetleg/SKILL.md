@@ -31,6 +31,7 @@ Real examples, all shipped as "verified" before a user caught them:
 | Label glyphs 404'd against the basemap | labels partly rendered | watching the network for 404s |
 | Seeker pin never repainted | state correct, panel text updated | `queryRenderedFeatures` on the pins layer |
 | Plan's split bar collapsed to 0 px wide | DOM correct, numbers present in the text | screenshotting the element and reading computed width |
+| Matching cells bent by the projection, 9.2% of ground on the wrong side | tests green, cells named the right POI, map looked plausible | scoring the polygon against nearest-POI truth on a sampled grid |
 | Deploys went to a *preview*, so the apex never moved | wrangler said "Success", the deploy guard said "looks good" | comparing the live bundle hash to `dist/index.html` |
 
 Two of these were mine to begin with *and* I misdiagnosed them twice before
@@ -46,7 +47,8 @@ npm run build      # tsc + vite + check-build.mjs (unresolved imports in output)
 npm test           # 23 engine tests, ~90 s
 npm run verify     # e2e-verify.cjs — drives a real browser, asserts zone counts
 npm run verify:tools  # verify-tools.cjs — measuring toolbar + plan layer, at 4x CPU throttle
-TARGET=https://jetleg-sf.pages.dev/ npm run verify:tools   # same suite, against a deployment
+npm run verify:rules  # verify-rules.cjs — elimination rule, voronoi parity, hider radar + thermometer
+TARGET=https://jetleg-sf.pages.dev/ npm run verify:tools   # any suite, against a deployment
 ```
 
 Both browser harnesses need a server first: `npx vite preview --port 4310`.
@@ -71,6 +73,9 @@ total features. Zero of anything means the worker is dead.
 
 Map layers the tools add: `measure-line` / `measure-draft` / `measure-vertex` /
 `measure-seg-label` / `measure-label`, and `plan-line` / `plan-label`.
+
+Reading a GeoJSON source's contents in a harness: `map.getSource(id).serialize().data`.
+`_data` exists but is not updated by `setData`, so it lies.
 
 If anything touched the question list or a layer, **time it with the CPU
 throttled 4x** (`Emulation.setCPUThrottlingRate`). Category switches must be
@@ -131,6 +136,17 @@ band or an empty POI layer is a real signal, not noise to silence.
 - **All geometry runs in UTM 10N**, never lon/lat. A degree of longitude is 0.79
   of a degree of latitude here; bisectors and Voronoi cells built in degree
   space are wrong by hundreds of metres.
+- **A straight line in UTM is a curve in lon/lat, and turf does not know that.**
+  Computing in UTM is not enough: a polygon whose corners are unprojected has
+  edges turf reads as straight *in degree space*. The 120 km half-planes used
+  for Voronoi cells and the thermometer bowed far enough to misclassify 9.2% of
+  the ground around the de Young. Build them with `utmPolygon`, which
+  interpolates along every edge before unprojecting. Four points per edge was
+  enough to fix it; it uses sixteen.
+- **The engine must reuse the cells the map draws**, via `layer.cells`, not
+  compute its own. A matching question *is* a question about those polygons, and
+  two implementations of one shape is how they came to disagree in front of a
+  player.
 - **Conservative elimination must stay correct.** A zone is ruled out only when
   its *entire* 500 m circle contradicts the answer, because the hider roams
   inside it. The property test replays every station's own truthful answers and

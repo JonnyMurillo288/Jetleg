@@ -51,6 +51,34 @@ export function playArea(
   return { inPlay, outOfPlay };
 }
 
+/**
+ * Build a lon/lat polygon from UTM corners, interpolating along every edge.
+ *
+ * This is load-bearing, and its absence was a real elimination bug. A straight
+ * line in UTM is a *curve* in lon/lat, but turf treats a polygon edge as
+ * straight in degree space. These half-planes are 120 km across, so a
+ * four-corner rectangle's bisector edge bowed hundreds of metres away from the
+ * line it was supposed to be — enough to put whole Voronoi cells on the wrong
+ * side of a matching answer. Measured against nearest-POI truth over 1,665
+ * sample points, the four-corner version misclassified 9.2% of them; four
+ * points per edge misclassified none.
+ */
+const EDGE_STEPS = 16;
+
+function utmPolygon(corners: [number, number][]): Region {
+  const ring: LngLat[] = [];
+  for (let i = 0; i < corners.length; i++) {
+    const a = corners[i];
+    const b = corners[(i + 1) % corners.length];
+    for (let s = 0; s < EDGE_STEPS; s++) {
+      const t = s / EDGE_STEPS;
+      ring.push(toLngLat([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]));
+    }
+  }
+  ring.push(ring[0]);
+  return polygon([ring]) as Region;
+}
+
 /** Clip anything to the game board. Out-of-bounds area is not in play. */
 export function clip(region: Region | null, boundary: Boundary): Region | null {
   if (!region) return null;
@@ -107,8 +135,7 @@ export function thermometerRegion(
     [mx - px * R + ux * R * sign, my - py * R + uy * R * sign],
     [mx + px * R + ux * R * sign, my + py * R + uy * R * sign],
   ];
-  const ring = [...corners, corners[0]].map(toLngLat);
-  return clip(polygon([ring]) as Region, boundary);
+  return clip(utmPolygon(corners), boundary);
 }
 
 /**
@@ -163,7 +190,11 @@ export function matchingRegion(
   const focus = featurePoint(nearest.feature);
   if (!focus) return null;
 
-  const cell = voronoiCell(focus, nearest.feature, layer, boundary);
+  // The shipped cell when there is one — already exact, already clipped to the
+  // board, and the very polygon the map draws. Carving is the fallback for
+  // layers the pipeline has no diagram for.
+  const pre = precomputedCell(layer, nearest.feature);
+  const cell = pre ?? voronoiCell(focus, nearest.feature, layer, boundary);
   return {
     region: cell,
     // The human-readable name, not the OSM-derived id: this string is shown in
@@ -249,7 +280,33 @@ export function tentacleRegion(
   const focus = featurePoint(target);
   if (!focus) return null;
 
-  return voronoiCell(focus, target, layer, disk);
+  const pre = precomputedCell(layer, target);
+  return pre ? clip(pre, disk as Boundary) : voronoiCell(focus, target, layer, disk);
+}
+
+/**
+ * The precomputed Voronoi cell for one feature, by id.
+ *
+ * Indexed once per layer; the cells never change after load.
+ */
+const cellIndexCache = new WeakMap<object, Map<string, Region>>();
+
+function precomputedCell(layer: PoiLayer, feature: Feature<any>): Region | null {
+  const cells = layer.cells;
+  if (!cells?.features.length) return null;
+
+  let index = cellIndexCache.get(cells);
+  if (!index) {
+    index = new Map();
+    for (const f of cells.features) {
+      const id = (f.properties?.id ?? f.properties?.name) as string | undefined;
+      if (id) index.set(id, f as Region);
+    }
+    cellIndexCache.set(cells, index);
+  }
+
+  const id = (feature.properties?.id ?? feature.properties?.name) as string | undefined;
+  return (id && index.get(id)) || null;
 }
 
 // ------------------------------------------------------------------ helpers
@@ -275,7 +332,7 @@ function halfPlaneCloserTo(a: LngLat, b: LngLat): Region {
     [mx - px * R - ux * R, my - py * R - uy * R],
     [mx + px * R - ux * R, my + py * R - uy * R],
   ];
-  return polygon([[...corners, corners[0]].map(toLngLat)]) as Region;
+  return utmPolygon(corners);
 }
 
 export function featurePoint(f: Feature<any>): LngLat | null {

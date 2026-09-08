@@ -44,6 +44,23 @@ describe('measuring tool drawing', () => {
     expect(totals[0].properties?.label).toMatch(/^total 1\.8[0-9] km$/);
   });
 
+  it('does not print the total twice on a single-leg line', () => {
+    // The total would be the leg, and on the hider's thermometer run it landed
+    // on top of the "end" pin's own label.
+    const fc = buildMeasureFc(
+      { ...base, shapes: [{ id: 'c', kind: 'line', points: [CIVIC, [-122.4094, 37.7793]] }] },
+      'metric',
+    );
+    expect(fc.features.filter((f) => f.properties?.kind === 'centre')).toHaveLength(0);
+    expect(fc.features.filter((f) => f.properties?.kind === 'segment')).toHaveLength(1);
+  });
+
+  it('draws an extra path with the same styling, for the hider thermometer run', () => {
+    const fc = buildMeasureFc(base, 'metric', [CIVIC, [-122.4094, 37.7793]]);
+    expect(fc.features.filter((f) => f.properties?.kind === 'segment')).toHaveLength(1);
+    expect(fc.features.every((f) => f.properties?.draft !== true)).toBe(true);
+  });
+
   it('draws the line still being placed, flagged as a draft', () => {
     const fc = buildMeasureFc({ ...base, draft: [CIVIC, [-122.4094, 37.7793]] }, 'imperial');
     expect(fc.features.some((f) => f.properties?.draft === true)).toBe(true);

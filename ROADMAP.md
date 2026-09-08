@@ -184,10 +184,6 @@ Roughly in value order.
 
 ### Completing the rulebook
 
-- [ ] the selection for pairing down the zones is by the zone point in the middle, not the hiding point.
-- [ ] In the hider "Radar" put the distance from their point to the seeker point at the top of the answer assistant section so they can see how far the seeker is from them
-- [ ] Ensure parity for the voronoi boundaries. Deyoung museum for example if I select "No" show sup off line with the layer voronoi boundaries. But the "Yes" selection shows up the same between layers and what is shaded
-- [ ] also for the hider, they will have to manually selct the start and end point of the seekers so that you can do hot and cold. Use the same mechanics that you used for the measurement tool in toolbar. Put a start point when they are in thermometer , then an end point, put the length and then allow the hotter or colder be the perpendicular line from their movement line
 
 - [ ] **Sea Level** — needs a USGS 3DEP terrain grid. SF spans 0–282 m, so this
       is one of the strongest questions available and it is currently dead.
@@ -206,6 +202,22 @@ Roughly in value order.
 - [ ] Reconcile the OSM and GTFS station sets into one reproducible rule
 
 ### Map and UX
+
+- [x] **Hider radar readout** — the distance to the seekers sits at the top of
+      the answer assistant, and each radar question now states the truthful
+      answer outright. Radar previously showed the hider nothing at all.
+- [x] **Voronoi parity** — the matching overlay is now the very cell the map
+      draws. This was not a display mismatch: measured against nearest-POI
+      truth, the engine's separately computed cell put **9.2% of the ground
+      around the de Young on the wrong side**, so matching answers were ruling
+      out the wrong zones. Cause: a straight line in UTM is a curve in lon/lat,
+      and turf reads a polygon edge as straight in degree space, so the 120 km
+      half-plane edge bowed. Fixed twice over — layers now carry their shipped
+      cells, and the carve fallback densifies its edges, which also repairs the
+      thermometer's identical construction.
+- [x] **Hider thermometer run** — place the seekers' start and end by hand using
+      the measuring tool's own mechanics and renderer; the leg carries its
+      length, and hotter/colder cuts the board along its perpendicular.
 
 - [x] **Measuring toolbar** — circles of a stated radius and free lines with
       per-leg lengths, drawn on the map and kept across reloads. A circle also
