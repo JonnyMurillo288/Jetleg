@@ -13,12 +13,14 @@
     "verify:tools": "node verify-tools.cjs",
     "verify:rules": "node verify-rules.cjs",
     "verify:units": "node verify-units.cjs",
+    "verify:sync": "tsx verify-sync.ts",
     "phone": "HTTPS=1 vite --host",
     "tunnel": "npm run build && node scripts/tunnel.mjs",
     "deploy": "npm run build && npx wrangler pages deploy dist --project-name jetleg-sf --branch production && sleep 6 && node scripts/check-deploy.mjs https://jetleg-sf.pages.dev",
     "verify:live": "node scripts/check-deploy.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.116.0",
     "@turf/area": "^7.4.0",
     "@turf/bbox": "^7.4.0",
     "@turf/boolean-contains": "^7.4.0",

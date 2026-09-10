@@ -49,6 +49,7 @@ npm run verify     # e2e-verify.cjs — drives a real browser, asserts zone coun
 npm run verify:tools  # verify-tools.cjs — measuring toolbar + plan layer, at 4x CPU throttle
 npm run verify:rules  # verify-rules.cjs — elimination rule, voronoi parity, hider radar + thermometer
 npm run verify:units  # verify-units.cjs — one unit everywhere; sweeps every surface in metric
+npm run verify:sync   # verify-sync.ts — game-history sync against a live Supabase (needs `supabase start`)
 TARGET=https://jetleg-sf.pages.dev/ npm run verify:tools   # any suite, against a deployment
 ```
 
@@ -188,6 +189,12 @@ band or an empty POI layer is a real signal, not noise to silence.
   with `LD_LIBRARY_PATH=/home/jonnym/lib pdftoppm -png -r 110` and read them.
 - **`pkill -f <pattern>` kills the calling shell** when the pattern matches its
   own command line. Kill by PID, or start servers with `setsid nohup … & disown`.
+- **A Postgres RLS policy that queries its own table is infinite recursion**,
+  not a slow query — every reference to a table re-runs that table's RLS,
+  including from inside another policy's subquery on the same table. Route
+  through a `security definer` helper function instead (`my_team_ids()` in
+  `supabase/migrations/0001_game_history.sql`). Caught by actually running
+  the migration and inserting a row, not by reading the SQL.
 
 ## Running it on a phone
 

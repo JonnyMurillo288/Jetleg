@@ -5,8 +5,13 @@ import type { AskEntry, GameSize, Role } from '../engine/types';
 import type { Strictness } from '../engine/candidates';
 
 /**
- * All state is local to this device and this player. There is no server and no
- * sync: a hider and a seeker running the app never see each other's data.
+ * All state is local to this device and this player, and IndexedDB is the
+ * only source of truth — a hider and a seeker running the app never
+ * exchange anything, live, between phones.
+ *
+ * A finished round may additionally sync to Supabase as history (see
+ * `../sync`), but only station-level/jittered data, only after it ends, and
+ * only best-effort: sync failing never blocks or corrupts the local game.
  *
  * Rounds are namespaced by role, so hiding in round 1 and seeking in round 2
  * keeps both cleanly separated.
@@ -239,7 +244,16 @@ export const useGame = create<State>()(
       endRound: () => {
         const id = get().activeRoundId;
         if (!id) return;
-        set({ rounds: get().rounds.map((r) => (r.id === id ? { ...r, endedAt: Date.now() } : r)) });
+        const endedAt = Date.now();
+        set({ rounds: get().rounds.map((r) => (r.id === id ? { ...r, endedAt } : r)) });
+
+        const ended = get().rounds.find((r) => r.id === id);
+        if (ended) {
+          // Fire-and-forget: a sync failure (offline, no backend configured,
+          // paused free-tier project) must never surface as a game error.
+          // syncFinishedRound queues on failure and retries on reconnect.
+          void import('../sync').then(({ syncFinishedRound }) => syncFinishedRound(ended, get().settings));
+        }
       },
 
       setActiveRound: (activeRoundId) => set({ activeRoundId }),

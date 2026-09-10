@@ -44,6 +44,24 @@ one thing it is for.
 **Goal:** durable storage and cross-device sync, without breaking either of the
 above.
 
+**Status: a first slice shipped**, on branch `backend/game-history` —
+end-of-game history only, no live sync, no login. See
+`.claude/skills/jetleg/references/architecture.md` for the schema and
+`app/src/sync/` for the code. What actually shipped, narrower than the
+sketch below in ways worth calling out:
+
+- Only a completed round syncs, once, after it ends — never anything about
+  a round in progress, and never a live location stream between devices
+- The hider's chosen station syncs exactly (it's the historical answer, not
+  a live position); radar/thermometer points sync jittered ±1 km; every
+  other category syncs no position at all
+- Identity is Supabase anonymous auth (no visible sign-in) plus a
+  shareable team join code — not the `users` table below, and not real
+  login; see the schema note in `0001_game_history.sql` for why (RLS can't
+  gate on a client-asserted id, only on a real `auth.uid()`)
+- One Supabase project only (local Docker for dev, that same project for
+  predeploy test and prod) — not the dev/prod split originally discussed
+
 ### Recommendation: Supabase
 
 Postgres, auth, realtime and row-level security in one service. RLS is the exact
@@ -61,6 +79,15 @@ query being written correctly forever.
 
 ### Schema sketch
 
+This was the original aspirational shape, kept for what Phase 2 (real
+accounts, live sync) still has to reconcile with. **What actually shipped
+is narrower** — `supabase/migrations/0001_game_history.sql` — no `users`
+(Supabase anonymous auth's `auth.users` plus a `profiles` display name
+instead), no `players`, no `hider_state` table at all, and no live
+coordinates anywhere: the hider's station syncs as the historical answer
+once a round ends, radar/thermometer points sync jittered ±1 km, and
+`asks.origin`/`destination` below never made it in as raw coordinates.
+
 ```
 users        id, email, display_name, created_at
 games        id, owner_id, city, size, settings, started_at, ended_at
@@ -75,12 +102,22 @@ recomputes from it. That ports directly.
 
 ### Work
 
-- [ ] Supabase project, schema, RLS policies
-- [ ] **A test that signs in as a seeker and asserts `hider_state` is unreadable**
-- [ ] Sync layer: local-first stays the source of truth, server is a replica
-- [ ] Conflict handling — the log is append-only, so last-write-wins per entry
-- [ ] Offline queue: play with no signal, reconcile on reconnect
+- [x] Supabase project, schema, RLS policies — local project + migration
+      done; a cloud project still needs Jonny's Supabase account, see the
+      "Needs Jonny" steps in the plan this branch was built from
+- [x] **A test that signs in as an outsider device and asserts another
+      team's game is unreadable** — `app/verify-sync.ts`, run against a live
+      Postgres; there is no `hider_state` table to test in this slice, since
+      no live position syncs at all yet, so the test asserts the broader
+      guarantee instead
+- [x] Sync layer: local-first stays the source of truth, server is a
+      replica — `app/src/sync/`, wired from `endRound()`
+- [ ] Conflict handling — moot so far; each round syncs once, after it ends
+- [x] Offline queue: play with no signal, reconcile on reconnect —
+      `app/src/sync/queue.ts`, flushed on the browser's `online` event
 - [ ] Migrate existing IndexedDB rounds on first sign-in, without data loss
+      — there's no "sign-in" yet to migrate into; revisit once Phase 2 adds
+      real accounts on top of the anonymous-auth profiles this slice created
 
 ### Open questions
 

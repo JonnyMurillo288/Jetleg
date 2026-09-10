@@ -211,6 +211,80 @@ fix, because it silently anchors answers to the wrong place.
 state re-rendered the whole app every second, which re-ran the full map redraw
 and replaced DOM nodes mid-tap.
 
+## Backend (`supabase/`, `app/src/sync/`)
+
+Phase 1 of `ROADMAP.md`, narrowed to one slice: **end-of-game history only.**
+No live sync between a hider's and a seeker's phone, no login, no accounts.
+The local-first design above is unchanged — IndexedDB stays the only source
+of truth while a round is in progress; Supabase only ever receives a
+completed round, once, after it ends.
+
+### What syncs, and what never does
+
+`app/src/sync/payload.ts` builds the synced shape from a `Round` and is the
+one place this rule is enforced in code, not just in review:
+
+- The hider's `hiderStationId` syncs exactly — it's already just a
+  `Station.id`, and once the round has ended it's historical record, not a
+  live position to protect.
+- `AskEntry.origin`/`destination` sync **only** for `radar` and
+  `thermometer` questions, and only after `jitter.ts` offsets them up to
+  1 km in UTM (`toUTM`/`toLngLat`, the same projection the engine uses
+  everywhere else). Every other category syncs no position field at all.
+- `Round.seekerPin` and every raw GPS point never leave the phone in any
+  form, jittered or otherwise.
+- Every timestamp becomes a `played_on` date; ask order survives as a plain
+  `seq` integer. `Round.duration_s` is the one derived number that still
+  ships, computed from the device's own local instants.
+- `games.raw_state` carries a full sanitized snapshot of the round
+  alongside the normalized `rounds`/`asks` rows, so history stays returnable
+  even if the normalized schema changes shape later.
+
+### Identity, without login
+
+`identity.ts` uses Supabase **anonymous auth** — `signInAnonymously()`,
+no email/password prompt — so RLS has a real `auth.uid()` to gate on. This
+was a deliberate deviation from the plan this branch was built from, which
+had sketched a bare client-generated `profiles.id`: Postgres RLS cannot
+verify a value the client merely asserts in its own request, so that version
+of the guard would have blocked nothing. `profiles.display_name` is the only
+thing a player actually enters; a shareable `teams.join_code` groups
+multiple devices' profiles onto the same game.
+
+### RLS, and the recursion trap
+
+`supabase/migrations/0001_game_history.sql` gates every table on team
+membership. The first version of the `team_members` policy queried
+`team_members` from inside its own `using` clause and Postgres rejected it
+as infinite recursion — every reference to a table re-runs that table's RLS,
+including from inside another policy's subquery, so a table's policy can
+never safely read itself. Fixed with a `security definer` helper
+(`my_team_ids()`) that runs as the function owner and so bypasses RLS on
+that one internal lookup instead of re-triggering it; `games`, `rounds` and
+`asks` policies call the same helper rather than re-deriving team membership
+each with their own subquery.
+
+### Sync path
+
+`endRound()` in `store/game.ts` dynamically imports `sync/index.ts` and
+calls `syncFinishedRound`, fire-and-forget — a sync failure must never
+surface as a game error. `queue.ts` holds anything that failed to send
+(offline, no backend configured, a paused free-tier project) in IndexedDB
+and retries on the browser's `online` event. With no `VITE_SUPABASE_URL`
+configured, every function in this path no-ops immediately; the local game
+is fully playable with no backend at all, same as it always was.
+
+### Environments
+
+One Supabase project, not a dev/prod split: local Docker Postgres
+(`supabase start`) for iteration, the same cloud project for predeploy
+testing and production. `app/verify-sync.ts` (run via `tsx`, not
+Playwright — this path never touches the map) exercises the real
+identity → payload → insert path against a running Postgres and is the
+test that actually matters: it signs in a second, unrelated device and
+asserts it reads back zero rows for another team's game, rather than
+trusting the schema to imply that on its own.
+
 ## Pipeline (`pipeline/`, 8 steps)
 
 Ordered; each depends on the last. Output lands in `app/public/data/` and is
