@@ -6,8 +6,8 @@ export function TopBar(props: {
   loc: LocationState;
   alive: number;
   total: number;
-  tab: 'play' | 'layers' | 'help';
-  onTab: (t: 'play' | 'layers' | 'help') => void;
+  tab: 'play' | 'layers' | 'results' | 'help';
+  onTab: (t: 'play' | 'layers' | 'results' | 'help') => void;
 }) {
   const { loc, alive, total, tab, onTab } = props;
   const role = useGame((s) => s.role);
@@ -29,6 +29,7 @@ export function TopBar(props: {
         <div className="seg">
           <button className={tab === 'play' ? 'on' : ''} onClick={() => onTab('play')}>Play</button>
           <button className={tab === 'layers' ? 'on' : ''} onClick={() => onTab('layers')}>Map</button>
+          <button className={tab === 'results' ? 'on' : ''} onClick={() => onTab('results')}>Results</button>
           <button className={tab === 'help' ? 'on' : ''} onClick={() => onTab('help')} title="Diagnostics">?</button>
         </div>
       </div>
@@ -48,7 +49,7 @@ export function TopBar(props: {
  */
 function LocationLine(props: {
   loc: LocationState;
-  onTab: (t: 'play' | 'layers' | 'help') => void;
+  onTab: (t: 'play' | 'layers' | 'results' | 'help') => void;
 }) {
   const { loc } = props;
   const ageSeconds = useFixAge(loc.fix);

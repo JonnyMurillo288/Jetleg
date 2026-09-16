@@ -50,6 +50,7 @@ npm run verify:tools  # verify-tools.cjs — measuring toolbar + plan layer, at 
 npm run verify:rules  # verify-rules.cjs — elimination rule, voronoi parity, hider radar + thermometer
 npm run verify:units  # verify-units.cjs — one unit everywhere; sweeps every surface in metric
 npm run verify:sync   # verify-sync.ts — game-history sync against a live Supabase (needs `supabase start`)
+npm run verify:results # verify-results.cjs — plays a real round, ends it, checks the Results tab against it
 TARGET=https://jetleg-sf.pages.dev/ npm run verify:tools   # any suite, against a deployment
 ```
 

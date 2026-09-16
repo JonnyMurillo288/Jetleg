@@ -18,11 +18,12 @@ import { TopBar } from './ui/TopBar';
 import { LayerPanel } from './ui/LayerPanel';
 import { RoundGate } from './ui/RoundGate';
 import { Diagnostics } from './ui/Diagnostics';
+import { ResultsPanel } from './ui/ResultsPanel';
 
 export default function App() {
   const [data, setData] = useState<GameData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'play' | 'layers' | 'help'>('play');
+  const [tab, setTab] = useState<'play' | 'layers' | 'results' | 'help'>('play');
   const [pins, setPins] = useState<{ start?: LngLat; end?: LngLat }>({});
 
   const role = useGame((s) => s.role);
@@ -268,6 +269,8 @@ export default function App() {
           <Diagnostics />
         ) : tab === 'layers' ? (
           <LayerPanel data={data} />
+        ) : tab === 'results' ? (
+          <ResultsPanel data={data} />
         ) : !round || round.endedAt ? (
           <RoundGate />
         ) : role === 'seeker' ? (

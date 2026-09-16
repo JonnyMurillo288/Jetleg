@@ -506,3 +506,19 @@ code { background: var(--line); padding: 2px 5px; border-radius: 4px; font-size:
   color: var(--ink);
   text-shadow: 0 0 3px #fff, 0 0 3px #fff;
 }
+
+/* -------------------------------------------------------------- results */
+
+.list.results li { align-items: flex-start; }
+
+.resultstats { display: flex; gap: 8px; margin: 8px 0 4px; flex-wrap: wrap; }
+.resultstats .stat {
+  flex: 1 1 100px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.resultstats .stat strong { font-size: 17px; color: var(--ink); }

@@ -47,7 +47,7 @@ export function AskLog(props: { data: GameData; round: Round; evaluated: Evaluat
               <div className="grow">
                 <div>
                   <b>{q?.label ?? a.questionId}</b>
-                  <span className="answer"> {describe(a.answer)}</span>
+                  <span className="answer"> {describeAnswer(a.answer)}</span>
                 </div>
                 <div className="muted small">
                   {new Date(a.askedAt).toLocaleTimeString()}
@@ -85,7 +85,8 @@ export function AskLog(props: { data: GameData; round: Round; evaluated: Evaluat
   );
 }
 
-function describe(a: Answer): string {
+/** Shared with ResultsPanel — one rendering of an answer, not two that can disagree. */
+export function describeAnswer(a: Answer): string {
   switch (a.kind) {
     case 'yesno': return a.value.toUpperCase();
     case 'closerFurther': return a.value.toUpperCase();
