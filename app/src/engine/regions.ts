@@ -4,7 +4,8 @@ import union from '@turf/union';
 import circleOf from '@turf/circle';
 import buffer from '@turf/buffer';
 import bboxOf from '@turf/bbox';
-import { featureCollection, polygon, feature } from '@turf/helpers';
+import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
+import { featureCollection, polygon, feature, point as pointOf } from '@turf/helpers';
 import type { Feature, Polygon, MultiPolygon } from 'geojson';
 import { toUTM, toLngLat, metres } from './project';
 import type { Boundary, LngLat, PoiLayer } from './types';
@@ -201,6 +202,78 @@ export function matchingRegion(
     // the seeker's ask log, where "parks-941913562" tells them nothing.
     nearestId: (nearest.feature.properties?.name as string) ?? (nearest.feature.properties?.id as string) ?? null,
   };
+}
+
+/**
+ * The district (or other polygon-partition feature) containing a point, by
+ * point-in-polygon rather than nearest-feature — the layer already partitions
+ * the whole board, so there is no Voronoi carving to do.
+ */
+export function districtFeatureAt(
+  pt: LngLat,
+  layer: PoiLayer,
+): Feature<Polygon | MultiPolygon> | null {
+  const p = pointOf(pt);
+  for (const f of layer.features) {
+    const g = f.geometry;
+    if (g?.type !== 'Polygon' && g?.type !== 'MultiPolygon') continue;
+    if (booleanPointInPolygon(p, f as Feature<Polygon | MultiPolygon>)) {
+      return f as Feature<Polygon | MultiPolygon>;
+    }
+  }
+  return null;
+}
+
+/**
+ * Matching against a polygon-partition layer (districts): "is your district
+ * the same as mine?" The yes-region is simply the seeker's own district,
+ * already clipped to the board.
+ */
+export function districtRegion(
+  origin: LngLat,
+  layer: PoiLayer,
+  boundary: Boundary,
+): { region: Region | null; nearestId: string | null } | null {
+  const f = districtFeatureAt(origin, layer);
+  if (!f) return null;
+  return {
+    region: clip(f as Region, boundary),
+    nearestId: (f.properties?.name as string) ?? (f.properties?.id as string) ?? null,
+  };
+}
+
+/**
+ * Matching by a derived property rather than feature identity: "is your
+ * station's [property] the same as mine?" The yes-region is the union of
+ * every matching feature's own Voronoi cell (precomputed when the layer has
+ * one, carved otherwise) — a many-to-one grouping, unlike `matchingRegion`'s
+ * single nearest cell.
+ */
+export function groupedMatchingRegion(
+  origin: LngLat,
+  layer: PoiLayer,
+  groupKeyOf: (f: Feature<any>) => string | number | null,
+  boundary: Boundary,
+): { region: Region | null; groupKey: string | number | null } | null {
+  const nearest = nearestFeature(origin, layer);
+  if (!nearest) return null;
+
+  const key = groupKeyOf(nearest.feature);
+  if (key === null) return null;
+
+  const cells: Region[] = [];
+  for (const f of layer.features) {
+    if (groupKeyOf(f) !== key) continue;
+    const focus = featurePoint(f);
+    if (!focus) continue;
+    const pre = precomputedCell(layer, f);
+    const cell = pre ?? voronoiCell(focus, f, layer, boundary);
+    if (cell) cells.push(cell);
+  }
+  if (!cells.length) return null;
+
+  const merged = cells.length === 1 ? cells[0] : (union(featureCollection(cells) as any) as Region | null);
+  return { region: clip(merged, boundary), groupKey: key };
 }
 
 /**

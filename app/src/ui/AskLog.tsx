@@ -42,11 +42,19 @@ export function AskLog(props: { data: GameData; round: Round; evaluated: Evaluat
         {round.asks.slice().reverse().map((a) => {
           const q = QUESTIONS_BY_ID[a.questionId];
           const resolved = evaluated.resolved.find((r) => r.entry.id === a.id);
+          // The entry's own snapshotted distance, not the (possibly
+          // since-changed) catalog's — see the snapshot in SeekerPanel's
+          // `record()`. Formatting it fresh in the viewer's current units is
+          // safe because it's a real, fixed metres value either way.
+          const label =
+            q && (q.category === 'radar' || q.category === 'thermometer') && a.distanceM !== undefined
+              ? formatDistance(a.distanceM, units)
+              : (q?.label ?? a.questionId);
           return (
             <li key={a.id} className={a.disabled ? 'muted' : ''}>
               <div className="grow">
                 <div>
-                  <b>{q?.label ?? a.questionId}</b>
+                  <b>{label}</b>
                   <span className="answer"> {describe(a.answer)}</span>
                 </div>
                 <div className="muted small">

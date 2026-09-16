@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { GameData } from '../data/load';
 import { useGame, newAskId, type Round } from '../store/game';
-import { CATEGORY_META, CATEGORY_ORDER, QUESTIONS, QUESTIONS_BY_ID } from '../engine/questions';
+import { CATEGORY_META, CATEGORY_ORDER, QUESTIONS, QUESTIONS_BY_ID, resolveForUnits } from '../engine/questions';
 import { previewSplit, type evaluate } from '../engine/candidates';
 import { nearestFeature } from '../engine/regions';
 import type { Answer, AskEntry, Category, LngLat, Question } from '../engine/types';
@@ -35,10 +35,14 @@ export function SeekerPanel(props: {
   const addAsk = useGame((s) => s.addAsk);
   const plan = useGame((s) => s.plan);
   const togglePlan = useGame((s) => s.togglePlanQuestion);
+  const hideDeadQuestions = useGame((s) => s.hideDeadQuestions);
+  const toggleHideDeadQuestions = useGame((s) => s.toggleHideDeadQuestions);
 
   const available = useMemo(
-    () => QUESTIONS.filter((q) => q.category === category && q.sizes.includes(settings.gameSize)),
-    [category, settings.gameSize],
+    () =>
+      QUESTIONS.filter((q) => q.category === category && q.sizes.includes(settings.gameSize))
+        .map((q) => resolveForUnits(q, settings.units)),
+    [category, settings.gameSize, settings.units],
   );
 
   /**
@@ -49,10 +53,26 @@ export function SeekerPanel(props: {
   const statuses = useMemo(() => {
     const out: Record<string, ReturnType<typeof statusFor>> = {};
     for (const q of available) {
-      out[q.id] = statusFor(q, origin, data, evaluated, settings.supervisorDistrictsAsAdmin4);
+      out[q.id] = statusFor(q, origin, data, evaluated, settings.supervisorDistrictsAsAdmin4, settings.disabledQuestionIds);
     }
     return out;
-  }, [available, origin, data, evaluated, settings.supervisorDistrictsAsAdmin4]);
+  }, [available, origin, data, evaluated, settings.supervisorDistrictsAsAdmin4, settings.disabledQuestionIds]);
+
+  /**
+   * Null and no-split questions sink to the bottom rather than sitting
+   * wherever the catalog put them — a wasted turn is the same wasted turn
+   * whether it is first in the list or last, but finding the live questions
+   * shouldn't mean scanning past the dead ones first.
+   */
+  const [liveQuestions, deadQuestions] = useMemo(() => {
+    const live: Question[] = [];
+    const dead: Question[] = [];
+    for (const q of available) {
+      const st = statuses[q.id]?.state;
+      (st === 'null' || st === 'useless' ? dead : live).push(q);
+    }
+    return [live, dead];
+  }, [available, statuses]);
 
   const askCounts = useMemo(() => {
     const m: Record<string, number> = {};
@@ -71,6 +91,11 @@ export function SeekerPanel(props: {
       askedAt: Date.now(),
       origin,
       answer,
+      // Snapshot the resolved radar/thermometer distance onto the entry, not
+      // just the question's own — the catalog's distance now depends on
+      // `settings.units`, and a later unit toggle must not retroactively
+      // change what an already-answered question actually asked.
+      ...(q.category === 'radar' || q.category === 'thermometer' ? { distanceM: q.distanceM } : {}),
       ...extra,
     };
     addAsk(entry);
@@ -120,8 +145,17 @@ export function SeekerPanel(props: {
             <ThermometerBar here={origin} pins={pins} setPins={setPins} units={settings.units} />
           )}
 
+          {deadQuestions.length > 0 && (
+            <label className="hidedead">
+              <input type="checkbox" checked={hideDeadQuestions} onChange={toggleHideDeadQuestions} />
+              <span className="muted small">
+                Hide null / no-split questions ({deadQuestions.length})
+              </span>
+            </label>
+          )}
+
           <ul className="qlist">
-            {available.map((q) => (
+            {liveQuestions.map((q) => (
               <QuestionRow
                 key={q.id}
                 question={q}
@@ -138,6 +172,27 @@ export function SeekerPanel(props: {
               />
             ))}
           </ul>
+
+          {deadQuestions.length > 0 && !hideDeadQuestions && (
+            <ul className="qlist dead-group">
+              {deadQuestions.map((q) => (
+                <QuestionRow
+                  key={q.id}
+                  question={q}
+                  status={statuses[q.id]}
+                  timesAsked={askCounts[q.id] ?? 0}
+                  origin={origin}
+                  pins={pins}
+                  data={data}
+                  open={openId === q.id}
+                  onToggle={() => setOpenId(openId === q.id ? null : q.id)}
+                  inPlan={plan.includes(q.id)}
+                  onTogglePlan={() => togglePlan(q.id)}
+                  onAnswer={(answer, extra) => record(q, answer, extra)}
+                />
+              ))}
+            </ul>
+          )}
         </>
       )}
     </div>
@@ -244,7 +299,12 @@ function statusFor(
   data: GameData,
   evaluated: Evaluated,
   admin4HouseRule: boolean,
+  disabledQuestionIds: string[],
 ) {
+  if (disabledQuestionIds.includes(q.id)) {
+    return { state: 'null' as const, reason: 'Disabled before the round in Map → Rules → Disable questions.' };
+  }
+
   const sf = SF_NOTES[q.id];
   if (sf && !(q.id === 'match-4th-administrative-division' && admin4HouseRule)) {
     return sf.state === 'null'

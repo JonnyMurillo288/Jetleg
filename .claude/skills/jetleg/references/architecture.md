@@ -68,6 +68,31 @@ Voronoi cells are worse, because a Voronoi diagram is a purely metric construct.
 `toUTM` / `toLngLat` wrap proj4. `toUTMCached` memoizes, and `spatial.ts` goes
 further by projecting whole layers once into typed arrays.
 
+### Matching against something other than a nearest POI
+
+`matchingRegion` assumes "same as mine" means the same single nearest point —
+one Voronoi cell. Two question types don't fit that:
+
+- **The 4th administrative division** (`districtRegion`, `districtFeatureAt`).
+  Districts already partition the whole board, so this is point-in-polygon
+  containment, not nearest-feature — the yes-region is just the seeker's own
+  district polygon. `layers.admin4` is a `PoiLayer` with `kind: 'polygon'`,
+  built in `data/load.ts` from `districts-supervisor.geojson`, clipped to the
+  play boundary in the same pass so the map's "Supervisor districts" toggle
+  and the matching question always agree — they read the same polygons.
+- **Station Name's Length** (`groupedMatchingRegion`). "Same as mine" here
+  means "any station whose derived property matches," a many-to-one grouping
+  — the region is the union of every matching station's own cell, not one
+  cell. `layers.stationNames` is a synthetic `PoiLayer` over the full 192-
+  station set (not `rail-stations.geojson`'s 56, which excludes bus-only
+  stops), also built in `data/load.ts`. It carries no precomputed diagram, so
+  this always takes `matchingRegion`'s carve-fallback path.
+
+Both need their own branch in `candidates.ts`'s `computeAsk` and
+`previewSplit` *before* the generic matching/`layerIndex` path runs —
+`layerIndex` assumes point/line geometry and silently produces nonsense
+against a polygon layer.
+
 ### Conservative vs strict
 
 The rulebook says every answer describes the hider's *current location*, not

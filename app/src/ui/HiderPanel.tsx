@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import type { GameData } from '../data/load';
 import { useGame, newAskId, type Round } from '../store/game';
-import { CATEGORY_META, CATEGORY_ORDER, QUESTIONS, QUESTIONS_BY_ID } from '../engine/questions';
+import { CATEGORY_META, CATEGORY_ORDER, QUESTIONS, QUESTIONS_BY_ID, STATION_NAME_LENGTH_QUESTION_ID, resolveForUnits } from '../engine/questions';
 import { nearestFeature, distanceToFeatureM } from '../engine/regions';
+import { stationNameLength } from '../engine/stationName';
 import { metres } from '../engine/project';
 import { ZONE_RADIUS_M, type evaluate } from '../engine/candidates';
 import type { Answer, AskEntry, Category, LngLat, Question, Station } from '../engine/types';
@@ -57,8 +58,11 @@ export function HiderPanel(props: {
   }, [here, hiderStation]);
 
   const questions = useMemo(
-    () => QUESTIONS.filter((q) => q.category === category && q.sizes.includes(settings.gameSize)),
-    [category, settings.gameSize],
+    () =>
+      QUESTIONS.filter((q) =>
+        q.category === category && q.sizes.includes(settings.gameSize) && !settings.disabledQuestionIds.includes(q.id),
+      ).map((q) => resolveForUnits(q, settings.units)),
+    [category, settings.gameSize, settings.units, settings.disabledQuestionIds],
   );
 
   const log = (q: Question, answer: Answer, extra?: Partial<AskEntry>) => {
@@ -71,6 +75,10 @@ export function HiderPanel(props: {
       askedAt: Date.now(),
       origin: seekers!,
       answer,
+      // Same snapshot as the seeker's own ask log: the resolved distance
+      // travels with the entry, so a later unit toggle can't retroactively
+      // change what was actually answered.
+      ...(q.category === 'radar' || q.category === 'thermometer' ? { distanceM: q.distanceM } : {}),
       ...extra,
     };
     addAsk(entry);
@@ -128,6 +136,7 @@ export function HiderPanel(props: {
           hiderStation={hiderStation}
           mineAlive={mine?.alive ?? true}
           seekers={seekers}
+          units={settings.units}
           onClearPin={() => setSeekerPin(undefined)}
           onRemove={removeAsk}
           onEnd={endRound}
@@ -186,7 +195,9 @@ export function HiderPanel(props: {
 
           <div className="chips">
             {CATEGORY_ORDER.map((c) => {
-              const n = QUESTIONS.filter((q) => q.category === c && q.sizes.includes(settings.gameSize)).length;
+              const n = QUESTIONS.filter((q) =>
+                q.category === c && q.sizes.includes(settings.gameSize) && !settings.disabledQuestionIds.includes(q.id),
+              ).length;
               if (!n) return null;
               return (
                 <button key={c} className={`chip ${category === c ? 'on' : ''}`} onClick={() => setCategory(c)}>
@@ -311,11 +322,12 @@ function Exposure(props: {
   hiderStation: Station | null;
   mineAlive: boolean;
   seekers: LngLat | null;
+  units: 'imperial' | 'metric';
   onClearPin: () => void;
   onRemove: (id: string) => void;
   onEnd: () => void;
 }) {
-  const { round, evaluated, hiderStation, mineAlive, onRemove, onEnd } = props;
+  const { round, evaluated, hiderStation, mineAlive, units, onRemove, onEnd } = props;
   const left = evaluated.alive.length;
   const total = evaluated.verdicts.length;
 
@@ -345,11 +357,18 @@ function Exposure(props: {
           <ul className="list log">
             {round.asks.slice().reverse().map((a) => {
               const q = QUESTIONS_BY_ID[a.questionId];
+              // A historical entry's actual radius travels on the entry, not
+              // the (possibly since-changed) catalog — see the snapshot in
+              // `log()` above.
+              const label =
+                q && (q.category === 'radar' || q.category === 'thermometer') && a.distanceM !== undefined
+                  ? formatDistance(a.distanceM, units)
+                  : (q?.label ?? a.questionId);
               return (
                 <li key={a.id}>
                   <div className="grow">
                     <div>
-                      <b>{q?.label ?? a.questionId}</b>
+                      <b>{label}</b>
                       <span className="answer"> {describe(a.answer)}</span>
                     </div>
                     <div className="muted small">{new Date(a.askedAt).toLocaleTimeString()}</div>
@@ -514,12 +533,7 @@ function computeAnswer(
     return { kind: 'fact', text: 'Take the shot to the spec above. If the subject is not in your zone, "I cannot answer" is valid — and you still draw a card.' };
   }
 
-  if (!q.layer) {
-    if (q.id === 'match-station-name-s-length') {
-      return { kind: 'fact', text: 'Count the characters of your station name, including spaces and hyphens.' };
-    }
-    return null;
-  }
+  if (!q.layer) return null;
 
   const layer = data.layers[q.layer];
   if (!layer || layer.features.length === 0) {
@@ -530,6 +544,14 @@ function computeAnswer(
   if (!near) return null;
   const name = (near.feature.properties?.name ?? near.feature.properties?.id ?? 'unnamed') as string;
   const away = formatDistance(near.distanceM, units);
+
+  if (q.id === STATION_NAME_LENGTH_QUESTION_ID) {
+    const len = stationNameLength(name);
+    return {
+      kind: 'fact',
+      text: `Your station's name is ${name} — ${len} characters counting only letters, digits, spaces and hyphens. Answer YES only if the seeker's nearest station name is also ${len}.`,
+    };
+  }
 
   if (q.category === 'matching') {
     return { kind: 'fact', text: `Your nearest ${q.label.toLowerCase()} is ${name} (${away}). Answer YES only if that is the one they named.` };

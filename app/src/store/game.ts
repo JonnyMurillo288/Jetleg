@@ -1,8 +1,10 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { get as idbGet, set as idbSet, del as idbDel } from 'idb-keyval';
-import type { AskEntry, GameSize, Role } from '../engine/types';
+import type { AskEntry, GameSize, Role, Units } from '../engine/types';
 import type { Strictness } from '../engine/candidates';
+
+export type { Units };
 
 /**
  * All state is local to this device and this player. There is no server and no
@@ -42,8 +44,6 @@ export type MapLayers = {
   stationDots: boolean;
 };
 
-export type Units = 'imperial' | 'metric';
-
 /**
  * A shape drawn with the measuring tool.
  *
@@ -72,6 +72,15 @@ type Settings = {
   units: Units;
   /** House rule: use supervisor districts as the 4th administrative division. */
   supervisorDistrictsAsAdmin4: boolean;
+  /**
+   * Questions turned off before the round, by id — a house-rule opt-out
+   * (a boundary type nobody wants to deal with, a rule the table dislikes,
+   * anything). A disabled question is forced into the same null status as
+   * one with no subject on the map: it sinks to the bottom of the Ask list
+   * and can be hidden with `hideDeadQuestions`, and the seeker can still
+   * only record it as null, never actually ask it.
+   */
+  disabledQuestionIds: string[];
 };
 
 type State = {
@@ -108,6 +117,12 @@ type State = {
   armSeekerPin: boolean;
   /** Collapsed sheet gives the map most of the screen. */
   sheetCollapsed: boolean;
+  /**
+   * Sink null/no-split questions to the bottom of the Ask list and, when on,
+   * hide them entirely. A display preference, not a game rule — unlike
+   * `settings`, it needs no pre-round agreement between players.
+   */
+  hideDeadQuestions: boolean;
   /**
    * Hider only: where the seekers started and ended a thermometer run.
    *
@@ -149,6 +164,7 @@ type State = {
   setHiderPlaceTarget: (t: 'me' | 'seekers') => void;
   setArmSeekerPin: (v: boolean) => void;
   setSheetCollapsed: (v: boolean) => void;
+  toggleHideDeadQuestions: () => void;
   armHiderThermo: (which: 'none' | 'start' | 'end') => void;
   placeHiderThermo: (ll: [number, number]) => void;
   clearHiderThermo: () => void;
@@ -164,6 +180,7 @@ type State = {
   setPlanOnMap: (v: boolean) => void;
   toggleOverlay: (askId: string) => void;
   updateSettings: (patch: Partial<Settings>) => void;
+  toggleQuestionDisabled: (questionId: string) => void;
 
   exportJSON: () => string;
   importJSON: (raw: string) => { ok: true } | { ok: false; error: string };
@@ -204,7 +221,11 @@ export const useGame = create<State>()(
          */
         strictness: 'strict',
         units: 'imperial',
-        supervisorDistrictsAsAdmin4: false,
+        // Was dead until admin4 was wired up: no house rule anyone could
+        // have actually chosen `false` against. Defaulting it on makes the
+        // question live like every other POI-backed matching question.
+        supervisorDistrictsAsAdmin4: true,
+        disabledQuestionIds: [],
       },
       visibleLayers: [],
       hiddenOverlays: [],
@@ -213,6 +234,7 @@ export const useGame = create<State>()(
       hiderPlaceTarget: 'me',
       armSeekerPin: false,
       sheetCollapsed: false,
+      hideDeadQuestions: false,
       hiderThermo: { arm: 'none' },
       measure: { tool: 'off', radiusM: 500, shapes: [], draft: [] },
       plan: [],
@@ -274,6 +296,8 @@ export const useGame = create<State>()(
         set({ mapLayers: { ...get().mapLayers, [key]: !get().mapLayers[key] } }),
 
       setSheetCollapsed: (sheetCollapsed) => set({ sheetCollapsed }),
+
+      toggleHideDeadQuestions: () => set({ hideDeadQuestions: !get().hideDeadQuestions }),
 
       armHiderThermo: (arm) => set({ hiderThermo: { ...get().hiderThermo, arm } }),
 
@@ -361,6 +385,14 @@ export const useGame = create<State>()(
 
       updateSettings: (patch) => set({ settings: { ...get().settings, ...patch } }),
 
+      toggleQuestionDisabled: (questionId) => {
+        const { disabledQuestionIds } = get().settings;
+        const next = disabledQuestionIds.includes(questionId)
+          ? disabledQuestionIds.filter((id) => id !== questionId)
+          : [...disabledQuestionIds, questionId];
+        set({ settings: { ...get().settings, disabledQuestionIds: next } });
+      },
+
       exportJSON: () => {
         const { rounds, settings, role } = get();
         return JSON.stringify({ app: 'jetleg-sf', version: 1, exportedAt: Date.now(), role, settings, rounds }, null, 2);
@@ -388,7 +420,7 @@ export const useGame = create<State>()(
     {
       name: 'jetleg-sf',
       storage: createJSONStorage(() => idbStorage),
-      version: 2,
+      version: 3,
       /**
        * A stored setting outlives a change of default, so v1 devices would have
        * kept eliminating by the whole 500 m circle no matter what the code now
@@ -398,6 +430,12 @@ export const useGame = create<State>()(
       migrate: (persisted: any, version: number) => {
         if (version < 2 && persisted?.settings?.strictness === 'conservative') {
           persisted.settings.strictness = 'strict';
+        }
+        // `disabledQuestionIds` is read with `.includes()` throughout — a
+        // missing array here (any device that persisted before this field
+        // existed) would throw, not just show the wrong default.
+        if (version < 3 && persisted?.settings && !Array.isArray(persisted.settings.disabledQuestionIds)) {
+          persisted.settings.disabledQuestionIds = [];
         }
         return persisted;
       },

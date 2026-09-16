@@ -154,6 +154,16 @@ band or an empty POI layer is a real signal, not noise to silence.
   to build the string `seeker is 0.42 km from their nearest`, which printed in
   the ask log next to a panel reading miles. Resolved asks now carry `radiusM`
   as a number.
+- **Radar and Thermometer are a deliberate, scoped exception to "rule
+  constants stay metric."** Their tiers are house-rule numbers chosen per unit
+  system (`Question.imperial` in `engine/types.ts`), not a converted km value —
+  0.25 mi is not 500 m. Both players must set the same units before the round,
+  same as the admin4 house rule. Because the underlying distance itself now
+  depends on `settings.units`, every `AskEntry` for these two categories
+  snapshots its resolved `distanceM` at ask time (in `record()`/`log()`); the
+  catalog's own `distanceM` is only ever a fallback. Skipping that snapshot is
+  how a later unit toggle would silently reinterpret an already-answered
+  question.
 - **The engine must reuse the cells the map draws**, via `layer.cells`, not
   compute its own. A matching question *is* a question about those polygons, and
   two implementations of one shape is how they came to disagree in front of a

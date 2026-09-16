@@ -5,11 +5,14 @@ import turfBbox from '@turf/bbox';
 import type { BBox, Feature, Polygon } from 'geojson';
 import type { AskEntry, Boundary, LngLat, PoiLayer, Question, Station } from './types';
 import {
-  matchingRegion, measuringRegion, radarRegion, tentacleRegion, thermometerRegion,
+  districtFeatureAt, districtRegion, groupedMatchingRegion, matchingRegion,
+  measuringRegion, radarRegion, tentacleRegion, thermometerRegion,
   type Region,
 } from './regions';
 import { metresCached, toUTMCached } from './project';
 import { layerIndex, nearestProjected, nearestTo } from './spatial';
+import { stationNameLength } from './stationName';
+import { STATION_NAME_LENGTH_QUESTION_ID } from './questions';
 
 export const ZONE_RADIUS_M = 500;
 
@@ -216,12 +219,32 @@ function computeAsk(
     case 'matching': {
       const layer = question.layer ? layers[question.layer] : undefined;
       if (!layer) return base;
+      const inverted = entry.answer.kind === 'yesno' && entry.answer.value === 'no';
+
+      if (layer.kind === 'polygon') {
+        const d = districtRegion(entry.origin, layer, boundary);
+        if (!d) return base;
+        return {
+          ...base, region: d.region, inverted,
+          note: d.nearestId ? `seeker's district: ${d.nearestId}` : undefined,
+        };
+      }
+
+      if (question.id === STATION_NAME_LENGTH_QUESTION_ID) {
+        const g = groupedMatchingRegion(
+          entry.origin, layer, (f) => stationNameLength((f.properties?.name as string) ?? ''), boundary,
+        );
+        if (!g) return base;
+        return {
+          ...base, region: g.region, inverted,
+          note: g.groupKey !== null ? `seeker's station name length: ${g.groupKey}` : undefined,
+        };
+      }
+
       const m = matchingRegion(entry.origin, layer, boundary);
       if (!m) return base;
       return {
-        ...base,
-        region: m.region,
-        inverted: entry.answer.kind === 'yesno' && entry.answer.value === 'no',
+        ...base, region: m.region, inverted,
         note: m.nearestId ? `seeker's nearest: ${m.nearestId}` : undefined,
       };
     }
@@ -289,6 +312,26 @@ export function evaluate(
  */
 const nearestCache = new Map<string, Map<string, { distanceM: number; id: string }>>();
 
+/**
+ * District membership per station, cached by layer key — the same model as
+ * `nearestCache` below, and for the same reason: 192 stations x 11 polygons
+ * of DataSF's own vertex density is cheap once and not worth repeating on
+ * every render.
+ */
+const districtCache = new Map<string, Map<string, string | null>>();
+
+function districtPerStation(layer: PoiLayer, stations: Station[]) {
+  let m = districtCache.get(layer.key);
+  if (m) return m;
+  m = new Map();
+  for (const s of stations) {
+    const f = districtFeatureAt([s.lon, s.lat], layer);
+    m.set(s.id, (f?.properties?.id as string) ?? null);
+  }
+  districtCache.set(layer.key, m);
+  return m;
+}
+
 function nearestPerStation(layer: PoiLayer, stations: Station[]) {
   let m = nearestCache.get(layer.key);
   if (m) return m;
@@ -338,6 +381,18 @@ export function previewSplit(
   const layer = question.layer ? layers[question.layer] : undefined;
   if (!layer || layer.features.length === 0) return null;
 
+  // Polygon-partition layers (districts) match by containment, not nearest
+  // feature — `layerIndex` assumes point/line geometry and would be nonsense
+  // here, so this must branch before it runs.
+  if (question.category === 'matching' && layer.kind === 'polygon') {
+    const mineDistrict = districtFeatureAt(origin, layer)?.properties?.id ?? null;
+    if (mineDistrict === null) return null;
+    const perStation = districtPerStation(layer, alive);
+    let yes = 0;
+    for (const s of alive) if (perStation.get(s.id) === mineDistrict) yes++;
+    return { yes, no: alive.length - yes };
+  }
+
   const mine = nearestTo(layerIndex(layer), origin);
   if (!mine) return null;
   const perStation = nearestPerStation(layer, alive);
@@ -352,6 +407,12 @@ export function previewSplit(
   }
 
   if (question.category === 'matching') {
+    if (question.id === STATION_NAME_LENGTH_QUESTION_ID) {
+      const myLen = stationNameLength(mine.name);
+      let yes = 0;
+      for (const s of alive) if (stationNameLength(s.name) === myLen) yes++;
+      return { yes, no: alive.length - yes };
+    }
     const myId = mine.id;
     let yes = 0;
     for (const s of alive) if (perStation.get(s.id)?.id === myId) yes++;
@@ -365,4 +426,5 @@ export function previewSplit(
 /** Layers are immutable after load, but clear if they are ever swapped. */
 export function resetPreviewCaches(): void {
   nearestCache.clear();
+  districtCache.clear();
 }

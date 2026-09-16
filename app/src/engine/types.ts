@@ -3,6 +3,7 @@ import type { Feature, FeatureCollection, Polygon, MultiPolygon, Point, LineStri
 export type Mode = 'rail' | 'metro' | 'bus' | 'cablecar' | 'ferry';
 export type GameSize = 'small' | 'medium' | 'large';
 export type Role = 'seeker' | 'hider';
+export type Units = 'imperial' | 'metric';
 
 export type LngLat = [number, number];
 
@@ -48,6 +49,14 @@ export type Question = {
   layer?: string;
   /** Radar / thermometer / tentacle radius, in metres. */
   distanceM?: number;
+  /**
+   * Radar / thermometer only, and only when the tiers are not a plain unit
+   * conversion of each other: the mile-native distanceM/label/text to use
+   * when `settings.units === 'imperial'`. Both sides must still agree on a
+   * unit system before the round, exactly like the admin4 house rule — the
+   * distance itself changes here, not just how it is printed.
+   */
+  imperial?: { distanceM: number; label: string; text: string };
   /** Card reward, verbatim from the rulebook. */
   draw: string;
   /** Answer deadline in minutes. */
@@ -92,9 +101,13 @@ export type QuestionStatus =
 export type PoiLayer = {
   key: string;
   label: string;
-  /** Points for POIs measured to their map icon; lines for coastline etc. */
-  kind: 'point' | 'line';
-  features: Feature<Point | LineString | MultiLineString>[];
+  /**
+   * Points for POIs measured to their map icon; lines for coastline etc.;
+   * polygon for a layer that already partitions the whole board (districts),
+   * matched by point-in-polygon rather than nearest-feature.
+   */
+  kind: 'point' | 'line' | 'polygon';
+  features: Feature<Point | LineString | MultiLineString | Polygon | MultiPolygon>[];
   /**
    * The layer's precomputed Voronoi cells, when it has them.
    *

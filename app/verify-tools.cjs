@@ -199,14 +199,18 @@ const check = (name, ok, detail) => {
   };
 
   t = Date.now();
-  await addToPlan('1 km');
-  await addToPlan('2 km');
-  await addToPlan('5 km');
+  await addToPlan('0.5 mi');
+  await addToPlan('1 mi');
+  await addToPlan('3 mi');
   check('three questions shortlisted', (await p.$$('.qrow.planned')).length === 3, `${Date.now() - t} ms`);
 
-  await addToPlan('10 km');
+  // 10 mi (not 5 mi) so the shortlist's largest tier actually covers the
+  // whole board from Civic Center — the "no split" card below depends on it,
+  // and the mile tiers are not the km ones scaled, so the radius that used
+  // to guarantee full coverage at this position no longer does.
+  await addToPlan('10 mi');
   const planned = await p.evaluate(() => [...document.querySelectorAll('.qrow.planned .qlabel')].map(e => e.textContent.replace('plan', '').trim()));
-  check('shortlist caps at three, oldest drops', planned.length === 3 && !planned.includes('1 km'), JSON.stringify(planned));
+  check('shortlist caps at three, oldest drops', planned.length === 3 && !planned.includes('0.5 mi'), JSON.stringify(planned));
 
   t = Date.now();
   await click(p, '^Plan', '.seg.wide button');
@@ -238,7 +242,7 @@ const check = (name, ok, detail) => {
   await click(p, '^Ask this$', '.plancard button');
   await p.waitForTimeout(800);
   const openRow = await p.evaluate(() => document.querySelector('.qrow .qbody')?.closest('.qrow')?.querySelector('.qlabel')?.textContent.replace('plan', '').trim());
-  check('“Ask this” opens that question', /^2 km|^5 km|^10 km/.test(openRow || ''), `${openRow}  ${Date.now() - t} ms`);
+  check('“Ask this” opens that question', /^1 mi|^3 mi|^10 mi/.test(openRow || ''), `${openRow}  ${Date.now() - t} ms`);
 
   // Answering a shortlisted question must not disturb the plan.
   await p.evaluate(() => {

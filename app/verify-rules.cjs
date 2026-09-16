@@ -79,12 +79,12 @@ const clickMap = async (p, fx, fy) => {
   // The visible symptom: the Ask list's split must equal what answering leaves.
   const before = await p.evaluate(() => document.querySelector('.count').textContent.trim());
   const split = await p.evaluate(() => {
-    const row = [...document.querySelectorAll('.qrow')].find(r => /^2 km/.test(r.querySelector('.qlabel').textContent));
+    const row = [...document.querySelectorAll('.qrow')].find(r => /^1 mi/.test(r.querySelector('.qlabel').textContent));
     return row.querySelector('.qsplit').textContent.trim();
   });
-  await openRow(p, '2 km');
+  await openRow(p, '1 mi');
   await p.evaluate(() => {
-    const row = [...document.querySelectorAll('.qrow')].find(r => /^2 km/.test(r.querySelector('.qlabel').textContent));
+    const row = [...document.querySelectorAll('.qrow')].find(r => /^1 mi/.test(r.querySelector('.qlabel').textContent));
     [...row.querySelectorAll('button')].find(b => b.textContent.trim() === 'Yes').click();
   });
   await p.waitForTimeout(2500);
@@ -140,9 +140,9 @@ const clickMap = async (p, fx, fy) => {
   });
   check('radar shows the distance to the seekers', /The seekers are [\d.]+ (mi|ft|km|m) away/.test(readout || ''), readout);
 
-  await openRow(p, '2 km');
+  await openRow(p, '1 mi');
   const radarAnswer = await p.evaluate(() => {
-    const row = [...document.querySelectorAll('.qrow')].find(r => /^2 km/.test(r.querySelector('.qlabel').textContent));
+    const row = [...document.querySelectorAll('.qrow')].find(r => /^1 mi/.test(r.querySelector('.qlabel').textContent));
     return row.querySelector('.hint')?.textContent.replace(/\s+/g, ' ').trim() ?? null;
   });
   check('radar states the truthful answer outright', /so the answer is (YES|NO)/.test(radarAnswer || ''), radarAnswer);
@@ -170,10 +170,10 @@ const clickMap = async (p, fx, fy) => {
   check('the run is drawn and labelled like a measurement',
     drawnRun.seg > 0 && drawnRun.line > 0 && drawnRun.pins >= 3, JSON.stringify(drawnRun));
 
-  await openRow(p, '1 km');
+  await openRow(p, '0.5 mi');
   const zonesBefore = await p.evaluate(() => document.querySelector('.count').textContent.trim());
   await p.evaluate(() => {
-    const row = [...document.querySelectorAll('.qrow')].find(r => /^1 km/.test(r.querySelector('.qlabel').textContent));
+    const row = [...document.querySelectorAll('.qrow')].find(r => /^0.5 mi/.test(r.querySelector('.qlabel').textContent));
     [...row.querySelectorAll('button')].find(b => b.textContent.trim() === 'Colder').click();
   });
   await p.waitForTimeout(3000);

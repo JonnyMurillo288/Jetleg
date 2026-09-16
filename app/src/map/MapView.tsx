@@ -741,7 +741,10 @@ function redraw(m: MLMap, p: Props) {
 
   const showDistricts = p.visibleLayers.includes('districts') ? 'visible' : 'none';
   m.setLayoutProperty('districts-line', 'visibility', showDistricts);
-  m.setLayoutProperty('districts-label', 'visibility', showDistricts);
+  // If the Voronoi cells are on too, they carry the name — labelling the
+  // outline as well would print every district name twice.
+  const districtsLabelled = showDistricts === 'visible' && !p.visibleLayers.includes('districts:voronoi');
+  m.setLayoutProperty('districts-label', 'visibility', districtsLabelled ? 'visible' : 'none');
 
   // GPS dot + accuracy ring.
   const me: FeatureCollection = { type: 'FeatureCollection', features: [] };

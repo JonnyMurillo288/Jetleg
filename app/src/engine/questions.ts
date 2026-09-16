@@ -1,4 +1,4 @@
-import type { GameSize, Question } from './types';
+import type { GameSize, Question, Units } from './types';
 
 /**
  * The full Hide+Seek question catalog: 80 questions in six categories.
@@ -37,8 +37,8 @@ matching('Commercial Airport', 'Transit', 'airports',
   'An airport counts as commercial if you can view flights to/from it on Google Flights.');
 matching('Transit Line', 'Transit', 'transitLines',
   'You must be aboard a mode of transit, and it must be moving. If your train passes through the hider’s station without stopping, the answer is no.');
-matching('Station Name’s Length', 'Transit', undefined,
-  'Character count of the station name as your mapping app gives it. Hyphens and spaces count; "Station" counts if the app includes it.');
+matching('Station Name’s Length', 'Transit', 'stationNames',
+  'Count only letters, digits, spaces and hyphens in the station name as your mapping app gives it — strip everything else first (&, /, periods, apostrophes).');
 matching('Street or Path', 'Transit', 'streets',
   'A street ends when its name changes — "Jet Lag St. East" and "Jet Lag St. West" are different streets. Unnamed paths start and end at intersections.');
 
@@ -46,7 +46,7 @@ matching('1st Administrative Division', 'Administrative Divisions', 'admin1', 'U
 matching('2nd Administrative Division', 'Administrative Divisions', 'admin2', 'US counties.');
 matching('3rd Administrative Division', 'Administrative Divisions', 'admin3', 'US municipalities.');
 matching('4th Administrative Division', 'Administrative Divisions', 'admin4',
-  'Boroughs, wards or special districts. San Francisco has no formal 4th division — enable the supervisor-district house rule in settings to use this question.');
+  'Boroughs, wards or special districts. San Francisco has no formal 4th division, so this house rule uses the 11 Board of Supervisors districts instead — turn it off in Layers → Rules if both sides would rather this question stay dead.');
 
 matching('Mountain', 'Natural', 'mountains', 'Anything classified as a mountain by your mapping app. Measure to the map icon.');
 matching('Landmass', 'Natural', 'landmass',
@@ -112,10 +112,22 @@ measuring('Foreign Consulate', 'Public Utilities', 'consulates');
 // --------------------------------------------------------------- radar (10)
 // "Are you within ___ of me?"  draw 2, keep 1
 
-for (const [label, m] of [
-  ['500 m', 500], ['1 km', 1000], ['2 km', 2000], ['5 km', 5000], ['10 km', 10000],
-  ['15 km', 15000], ['40 km', 40000], ['80 km', 80000], ['160 km', 160000],
-] as [string, number][]) {
+// Mile-native tiers, not a unit conversion of the km ones: a house rule that
+// picks its own round numbers per unit system. Both sides must still agree on
+// a unit system before the round, same as the admin4 house rule — see
+// `Question.imperial`'s doc comment.
+const RADAR_TIERS: [string, number, string, number][] = [
+  ['500 m', 500, '0.25 mi', 402.336],
+  ['1 km', 1000, '0.5 mi', 804.672],
+  ['2 km', 2000, '1 mi', 1609.344],
+  ['5 km', 5000, '3 mi', 4828.032],
+  ['10 km', 10000, '5 mi', 8046.72],
+  ['15 km', 15000, '10 mi', 16093.44],
+  ['40 km', 40000, '25 mi', 40233.6],
+  ['80 km', 80000, '50 mi', 80467.2],
+  ['160 km', 160000, '100 mi', 160934.4],
+];
+for (const [label, m, mLabel, mM] of RADAR_TIERS) {
   q.push({
     id: `radar-${m}`,
     category: 'radar',
@@ -123,11 +135,12 @@ for (const [label, m] of [
     group: 'Radar',
     text: `Are you within ${label} of me?`,
     distanceM: m,
+    imperial: { distanceM: mM, label: mLabel, text: `Are you within ${mLabel} of me?` },
     draw: 'draw 2, keep 1',
     timeLimitMin: 5,
     sizes: ALL,
     answerKind: 'yesno',
-    caveat: 'Radar asks about the hider’s location, not their hiding zone.',
+    caveat: 'Radar asks about the hider’s location, not their hiding zone. Both sides must set the same unit system in Layers → Rules before the round — the distance changes with it, not just its label.',
   });
 }
 q.push({
@@ -146,9 +159,13 @@ q.push({
 // --------------------------------------------------------- thermometer (4)
 // "After traveling ___, am I hotter or colder?"  draw 2, keep 1
 
-for (const [label, m, sizes] of [
-  ['1 km', 1000, ALL], ['5 km', 5000, ALL], ['15 km', 15000, MED_LARGE], ['75 km', 75000, LARGE],
-] as [string, number, GameSize[]][]) {
+const THERMO_TIERS: [string, number, GameSize[], string, number][] = [
+  ['1 km', 1000, ALL, '0.5 mi', 804.672],
+  ['5 km', 5000, ALL, '3 mi', 4828.032],
+  ['15 km', 15000, MED_LARGE, '10 mi', 16093.44],
+  ['75 km', 75000, LARGE, '50 mi', 80467.2],
+];
+for (const [label, m, sizes, mLabel, mM] of THERMO_TIERS) {
   q.push({
     id: `thermo-${m}`,
     category: 'thermometer',
@@ -156,11 +173,12 @@ for (const [label, m, sizes] of [
     group: 'Thermometer',
     text: `After traveling ${label}, am I hotter or colder?`,
     distanceM: m,
+    imperial: { distanceM: mM, label: mLabel, text: `After traveling ${mLabel}, am I hotter or colder?` },
     draw: 'draw 2, keep 1',
     timeLimitMin: 5,
     sizes,
     answerKind: 'hotterColder',
-    caveat: 'Send the hider your start pin, travel at least this distance as the crow flies, then send your end pin.',
+    caveat: 'Send the hider your start pin, travel at least this distance as the crow flies, then send your end pin. Both sides must set the same unit system in Layers → Rules before the round.',
   });
 }
 
@@ -248,6 +266,24 @@ function slug(s: string): string {
 
 function article(label: string): string {
   return /^[aeiou]/i.test(label) ? 'an' : 'a';
+}
+
+/** The "Station Name's Length" matching question, referenced by id where the
+ *  generic matching path does not apply (candidates.ts, HiderPanel's hint). */
+export const STATION_NAME_LENGTH_QUESTION_ID = `match-${slug('Station Name’s Length')}`;
+
+/**
+ * Resolve a question's distance/label/text for the player's unit setting.
+ *
+ * Only radar and thermometer questions carry an `imperial` variant; every
+ * other question is metric-only and comes back unchanged. Applied once where
+ * a category tab builds its question list, so every downstream reader —
+ * asking, previewing, planning, logging — sees the same resolved question.
+ */
+export function resolveForUnits(question: Question, units: Units): Question {
+  if (units !== 'imperial' || !question.imperial) return question;
+  const { distanceM, label, text } = question.imperial;
+  return { ...question, distanceM, label, text };
 }
 
 export const QUESTIONS: Question[] = q;

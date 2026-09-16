@@ -3,7 +3,7 @@ import { loadGameData, type GameData } from './data/load';
 import { MapView } from './map/MapView';
 import { useLocation } from './location/useLocation';
 import { useGame, useActiveRound, requestPersistence } from './store/game';
-import { QUESTIONS_BY_ID } from './engine/questions';
+import { QUESTIONS_BY_ID, resolveForUnits } from './engine/questions';
 import { evaluate } from './engine/candidates';
 import { layerIndex } from './engine/spatial';
 import { playArea } from './engine/regions';
@@ -133,7 +133,10 @@ export default function App() {
   const [planCandidates, setPlanCandidates] = useState<PlanCandidate[]>([]);
   const alive = evaluated?.alive;
   useEffect(() => {
-    const questions = plan.map((id) => QUESTIONS_BY_ID[id]).filter(Boolean);
+    const questions = plan
+      .map((id) => QUESTIONS_BY_ID[id])
+      .filter(Boolean)
+      .map((q) => resolveForUnits(q, settings.units));
     if (!data || !questions.length) { setPlanCandidates([]); return; }
     let cancelled = false;
     const run = () => {
@@ -149,7 +152,7 @@ export default function App() {
       const cic = (window as any).cancelIdleCallback as undefined | ((h: number) => void);
       if (ric && cic) cic(id); else clearTimeout(id as number);
     };
-  }, [data, plan.join(','), planAnchor?.join(','), alive]);
+  }, [data, plan.join(','), planAnchor?.join(','), alive, settings.units]);
 
   // Both drawings are built here, where the unit setting lives, and handed to
   // the map as finished GeoJSON.

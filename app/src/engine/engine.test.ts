@@ -2,14 +2,17 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FeatureCollection } from 'geojson';
-import { QUESTIONS, QUESTIONS_BY_ID } from './questions';
+import { QUESTIONS, QUESTIONS_BY_ID, STATION_NAME_LENGTH_QUESTION_ID } from './questions';
 import { evaluate, resolveAsk, ZONE_RADIUS_M } from './candidates';
 import { planCandidate } from './plan';
-import { thermometerRegion, nearestFeature, measuringRegion, matchingRegion } from './regions';
+import { thermometerRegion, nearestFeature, measuringRegion, matchingRegion, districtFeatureAt } from './regions';
+import { stationNameLength } from './stationName';
 import { metres } from './project';
 import type { AskEntry, Answer, Boundary, LngLat, PoiLayer, Station } from './types';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 import { point } from '@turf/helpers';
+import intersectFn from '@turf/intersect';
+import { featureCollection as fcOf } from '@turf/helpers';
 
 const DATA = new URL('../../public/data/', import.meta.url).pathname;
 const read = <T>(f: string): T => JSON.parse(readFileSync(join(DATA, f), 'utf8'));
@@ -46,6 +49,30 @@ beforeAll(() => {
       layers[key].cells = read<FeatureCollection>(`voronoi-${key}.geojson`);
     } catch { /* layer has no diagram */ }
   }
+
+  // Same two synthetic layers `loadGameData` builds at runtime — the full
+  // station set as points (not the 56-station rail-only subset), and the
+  // supervisor districts clipped to the boundary. Rebuilt here rather than
+  // imported, since the app's loader fetches over HTTP and this suite reads
+  // straight off disk, same as every other layer above.
+  layers.stationNames = {
+    key: 'stationNames', label: 'Stations (by name)', kind: 'point',
+    features: stations.map((s) => ({
+      type: 'Feature', properties: { id: s.id, name: s.name },
+      geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
+    })) as any,
+  };
+  const districtsRaw = read<FeatureCollection>('districts-supervisor.geojson');
+  const districtFeatures = districtsRaw.features.flatMap((f) => {
+    const num = Number((f.properties as any)?.sup_dist_num ?? (f.properties as any)?.sup_dist);
+    if (!Number.isFinite(num)) return [];
+    let clipped: any = null;
+    try { clipped = intersectFn(fcOf([f as any, boundary as any]) as any); } catch { clipped = null; }
+    if (!clipped) return [];
+    clipped.properties = { id: `sd-${num}`, district: num, name: `District ${num}`, supervisor: (f.properties as any)?.sup_name ?? null };
+    return [clipped];
+  });
+  layers.admin4 = { key: 'admin4', label: '4th Administrative Division', kind: 'polygon', features: districtFeatures as any };
 });
 
 const ask = (questionId: string, origin: LngLat, answer: Answer, destination?: LngLat): AskEntry => ({
@@ -344,6 +371,21 @@ describe('property: a hider is never eliminated by their own truthful answers', 
         asks.push(ask(qid, seekerAt, { kind: 'yesno', value: mine === theirs ? 'yes' : 'no' }));
       }
 
+      // Matching (grouped): station name length.
+      {
+        const mineName = nearestFeature(seekerAt, layers.stationNames)!.feature.properties!.name as string;
+        const mine = stationNameLength(mineName);
+        const theirs = stationNameLength(st.name);
+        asks.push(ask(STATION_NAME_LENGTH_QUESTION_ID, seekerAt, { kind: 'yesno', value: mine === theirs ? 'yes' : 'no' }));
+      }
+
+      // Matching (polygon): 4th administrative division.
+      {
+        const mine = districtFeatureAt(seekerAt, layers.admin4)?.properties?.id ?? null;
+        const theirs = districtFeatureAt(hider, layers.admin4)?.properties?.id ?? null;
+        asks.push(ask('match-4th-administrative-division', seekerAt, { kind: 'yesno', value: mine === theirs ? 'yes' : 'no' }));
+      }
+
       // Thermometer: seeker walks 800 m north, answer computed truthfully.
       const end: LngLat = [seekerAt[0], seekerAt[1] + 800 / 111_320];
       const hotter = metres(end, hider) < metres(seekerAt, hider);
@@ -355,6 +397,56 @@ describe('property: a hider is never eliminated by their own truthful answers', 
 
     expect(failures, `these stations eliminated themselves:\n${failures.join('\n')}`).toEqual([]);
   }, 300_000);
+});
+
+describe('station name length', () => {
+  it('counts letters, digits, spaces and hyphens; strips other symbols', () => {
+    expect(stationNameLength('The Embarcadero & Stockton St')).toBe(
+      'The Embarcadero  Stockton St'.length, // "&" stripped, its surrounding spaces kept
+    );
+    expect(stationNameLength('3rd/La Salle')).toBe('3rdLa Salle'.length);
+    expect(stationNameLength('Jet-Lag Ave')).toBe('Jet-Lag Ave'.length);
+  });
+});
+
+describe('4th administrative division', () => {
+  it('resolves the seeker to exactly one of the 11 supervisor districts', () => {
+    const f = districtFeatureAt(CIVIC, layers.admin4);
+    expect(f).not.toBeNull();
+    expect(layers.admin4.features.length).toBe(11);
+  });
+
+  it('a yes answer keeps only zones in the seeker’s own district', () => {
+    // Strict (centre-only) rather than the suite's conservative default: a
+    // conservative zone near a district line can rightly survive on a
+    // neighbouring district's centre, because the hider's 500 m circle
+    // straddles the boundary — that is correct behaviour, not what this
+    // check is testing.
+    const mine = districtFeatureAt(CIVIC, layers.admin4)!.properties!.id;
+    const yes = run([ask('match-4th-administrative-division', CIVIC, { kind: 'yesno', value: 'yes' })], 'strict');
+    for (const s of yes.alive) {
+      expect(districtFeatureAt([s.lon, s.lat], layers.admin4)?.properties?.id).toBe(mine);
+    }
+  });
+});
+
+describe('radar/thermometer distance snapshot', () => {
+  it('an entry’s own distanceM overrides the catalog’s, so a unit change after asking cannot reinterpret it', () => {
+    // Simulates what SeekerPanel's record() now does: the resolved distance
+    // at ask time (here, a stand-in for a mile tier) travels on the entry,
+    // regardless of what the catalog says today.
+    const entry = ask('radar-2000', CIVIC, { kind: 'yesno', value: 'yes' });
+    entry.distanceM = 402.336; // "0.25 mi", not the catalog's 2000 m
+
+    const beyondSnapshot = stations.find((s) => {
+      const d = metres(CIVIC, [s.lon, s.lat]);
+      return d > 500 && d < 1900; // inside the catalog's 2000 m, outside the snapshot
+    });
+    expect(beyondSnapshot).toBeTruthy();
+
+    const result = evaluate(stations, [entry], QUESTIONS_BY_ID, layers, boundary, 'strict');
+    expect(result.alive.some((s) => s.id === beyondSnapshot!.id)).toBe(false);
+  });
 });
 
 /**

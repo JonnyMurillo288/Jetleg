@@ -18,7 +18,7 @@ import type { LngLat, PoiLayer } from './types';
 export type LineGeom = { id: string; name: string; xs: Float64Array; ys: Float64Array };
 
 export type LayerIndex = {
-  kind: 'point' | 'line';
+  kind: PoiLayer['kind'];
   ids: string[];
   names: string[];
   /** point layers: parallel arrays of projected coordinates */

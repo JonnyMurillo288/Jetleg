@@ -1,4 +1,6 @@
-import type { FeatureCollection } from 'geojson';
+import intersect from '@turf/intersect';
+import { featureCollection } from '@turf/helpers';
+import type { Feature, FeatureCollection, MultiPolygon, Point, Polygon } from 'geojson';
 import type { Boundary, PoiLayer, Station } from '../engine/types';
 
 const BASE = `${import.meta.env.BASE_URL}data`;
@@ -64,14 +66,49 @@ export const VORONOI_KEYS = [
   'consulates', 'golfCourses', 'aquariums', 'mountains', 'water', 'railStations',
 ] as const;
 
+/**
+ * Normalize the raw DataSF supervisor-district export into the shape the app
+ * already uses for district display, and clip each district to the play
+ * boundary in the same pass — so the map's "Supervisor districts" toggle and
+ * the 4th-admin-division matching question read the exact same polygons.
+ * Clipping here also drops island fragments (Treasure Island etc.) outside
+ * the boundary, without a separate trimming step.
+ */
+function normalizeDistricts(raw: FeatureCollection, boundary: Boundary): Feature<Polygon | MultiPolygon>[] {
+  const out: Feature<Polygon | MultiPolygon>[] = [];
+  for (const f of raw.features) {
+    const num = Number(f.properties?.sup_dist_num ?? f.properties?.sup_dist);
+    if (!Number.isFinite(num)) continue;
+    let clipped: Feature<Polygon | MultiPolygon> | null = null;
+    try {
+      clipped = intersect(featureCollection([f as any, boundary as any]) as any) as Feature<Polygon | MultiPolygon> | null;
+    } catch {
+      clipped = null;
+    }
+    if (!clipped) continue;
+    clipped.properties = {
+      id: `sd-${num}`,
+      district: num,
+      name: `District ${num}`,
+      supervisor: (f.properties?.sup_name as string) ?? null,
+    };
+    out.push(clipped);
+  }
+  return out;
+}
+
 export async function loadGameData(): Promise<GameData> {
-  const [boundaryFc, bbox, stationsDoc, zones, districts] = await Promise.all([
+  const [boundaryFc, bbox, stationsDoc, zones, districtsRaw] = await Promise.all([
     json<FeatureCollection>('boundary.geojson'),
     json<[number, number, number, number]>('bbox.json'),
     json<{ stations: Station[] }>('stations.json'),
     json<FeatureCollection>('zones.geojson'),
-    json<FeatureCollection>('districts.geojson'),
+    json<FeatureCollection>('districts-supervisor.geojson'),
   ]);
+
+  const boundary = boundaryFc.features[0] as Boundary;
+  const districtFeatures = normalizeDistricts(districtsRaw, boundary);
+  const districts: FeatureCollection = { type: 'FeatureCollection', features: districtFeatures as any };
 
   const loaded = await Promise.all(
     LAYER_DEFS.map(async (def) => {
@@ -82,6 +119,29 @@ export async function loadGameData(): Promise<GameData> {
 
   const layers: Record<string, PoiLayer> = Object.fromEntries(loaded) as any;
 
+  /**
+   * Two synthetic layers, built from data already loaded rather than fetched:
+   *
+   * `admin4` — the same clipped district polygons as `data.districts`, so the
+   * house-rule matching question and the map toggle can never disagree.
+   *
+   * `stationNames` — every hiding-zone station (all 192, not just the 56 in
+   * `rail-stations.geojson`, which excludes bus-only stops) as a point layer,
+   * so "Station Name's Length" carves cells the same way any other matching
+   * question does, over the whole board rather than a rail-only subset.
+   */
+  layers.admin4 = { key: 'admin4', label: '4th Administrative Division', kind: 'polygon', features: districtFeatures };
+  layers.stationNames = {
+    key: 'stationNames',
+    label: 'Stations (by name)',
+    kind: 'point',
+    features: stationsDoc.stations.map((s) => ({
+      type: 'Feature',
+      properties: { id: s.id, name: s.name },
+      geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
+    } as Feature<Point>)),
+  };
+
   const cells = await Promise.all(
     VORONOI_KEYS.map(async (key) => {
       const fc = await optional<FeatureCollection>(`voronoi-${key}.geojson`);
@@ -89,6 +149,9 @@ export async function loadGameData(): Promise<GameData> {
     }),
   );
   const voronoi = Object.fromEntries(cells) as Record<string, FeatureCollection>;
+  // Districts already partition the board, so their own polygons serve as
+  // their own "Voronoi" layer for the map toggle — nothing to fetch or carve.
+  voronoi.districts = districts;
 
   /*
    * Hand each layer its own cells.
@@ -102,7 +165,7 @@ export async function loadGameData(): Promise<GameData> {
   }
 
   return {
-    boundary: boundaryFc.features[0] as Boundary,
+    boundary,
     bbox,
     stations: stationsDoc.stations,
     zones,

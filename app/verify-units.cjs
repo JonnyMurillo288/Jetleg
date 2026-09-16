@@ -160,7 +160,9 @@ const check = (name, ok, detail) => {
   check('no imperial unit survives anywhere in metric mode',
     dirty.length === 0, dirty.length ? JSON.stringify(dirty) : sweeps.map(s => s.where).join(', '));
 
-  // The rulebook's own numbers must NOT convert.
+  // Radar/thermometer are a deliberate, scoped exception to "rulebook numbers
+  // never convert": in imperial mode they use their own mile-native tiers
+  // (engine/questions.ts's `Question.imperial`), not a converted km number.
   await click(p, '^Radar', '.chip');
   await p.waitForTimeout(500);
   await setUnits(p, 'Miles & feet');
@@ -170,8 +172,9 @@ const check = (name, ok, detail) => {
   await click(p, '^Radar', '.chip');
   await p.waitForTimeout(600);
   const labels = await p.evaluate(() => [...document.querySelectorAll('.qlabel')].map(e => e.textContent.trim()));
-  check('question text stays as the rulebook prints it',
-    labels.includes('2 km') && labels.includes('500 m'), JSON.stringify(labels.slice(0, 5)));
+  check('radar uses its own mile tiers in imperial mode, not a converted km number',
+    labels.includes('0.25 mi') && labels.includes('1 mi') && !labels.includes('2 km') && !labels.includes('500 m'),
+    JSON.stringify(labels.slice(0, 10)));
 
   // --- radar "Choose" carries its radius
   await click(p, '^Seeker$', '.topbar button');

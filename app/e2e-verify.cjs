@@ -55,16 +55,16 @@ const state = p => p.evaluate(() => ({
   console.log('2 round started   ', JSON.stringify(await state(p)));
   await p.screenshot({ path: '/tmp/s2-round.png' });
 
-  // Open the 2 km radar row and answer YES.
-  await click(p, '^2 km', '.qrow .qhead');
+  // Open the 1 mi radar row (radar-2000 in imperial mode) and answer YES.
+  await click(p, '^1 mi', '.qrow .qhead');
   await p.waitForTimeout(600);
   await p.screenshot({ path: '/tmp/s3-question.png' });
   await p.evaluate(() => {
-    const row = [...document.querySelectorAll('.qrow')].find(r => /^2 km/.test(r.querySelector('.qlabel').textContent));
+    const row = [...document.querySelectorAll('.qrow')].find(r => /^1 mi/.test(r.querySelector('.qlabel').textContent));
     [...row.querySelectorAll('button')].find(b => b.textContent.trim() === 'Yes').click();
   });
   await p.waitForTimeout(3000);
-  console.log('3 radar 2km YES   ', JSON.stringify(await state(p)));
+  console.log('3 radar 1mi YES   ', JSON.stringify(await state(p)));
   await p.screenshot({ path: '/tmp/s4-eliminated.png' });
 
   // Matching -> Park -> NO (draws a shaded exclusion overlay).

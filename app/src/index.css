@@ -165,6 +165,8 @@ select { font: inherit; padding: 10px; border: 1px solid var(--line); border-rad
 .qrow { border-top: 1px solid var(--line); }
 .qrow.dead .qlabel { color: var(--muted); text-decoration: line-through; }
 .qrow.weak .qlabel { color: var(--muted); }
+.hidedead { display: flex; align-items: center; gap: 6px; padding: 4px 12px; }
+.qlist.dead-group { border-top: 1px dashed var(--line); }
 
 .qhead {
   display: flex;
@@ -356,6 +358,21 @@ code { background: var(--line); padding: 2px 5px; border-radius: 4px; font-size:
   color: var(--muted);
 }
 .list.layers .grow { flex: 1; min-width: 0; }
+
+.disableq { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+.disableq summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  list-style: revert;
+}
+.disableq-cat h4 {
+  font-size: 12px;
+  margin: 14px 0 2px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--muted);
+}
 
 .maplayers-section {
   display: flex;

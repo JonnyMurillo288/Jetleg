@@ -3,6 +3,7 @@ import { LAYER_DEFS } from '../data/load';
 import { useGame } from '../store/game';
 import { UNIT_CHOICES, formatDistance } from './units';
 import { ZONE_RADIUS_M } from '../engine/candidates';
+import { CATEGORY_META, CATEGORY_ORDER, QUESTIONS, resolveForUnits } from '../engine/questions';
 
 /**
  * Layer list. Each point layer gets two switches: the points themselves, and
@@ -17,6 +18,7 @@ export function LayerPanel({ data }: { data: GameData }) {
   const toggle = useGame((s) => s.toggleLayer);
   const settings = useGame((s) => s.settings);
   const update = useGame((s) => s.updateSettings);
+  const toggleQuestionDisabled = useGame((s) => s.toggleQuestionDisabled);
 
   return (
     <div className="pad">
@@ -27,7 +29,7 @@ export function LayerPanel({ data }: { data: GameData }) {
       </p>
 
       <ul className="list layers">
-        <li>
+        <li className="layerrow">
           <label>
             <input
               type="checkbox"
@@ -36,6 +38,16 @@ export function LayerPanel({ data }: { data: GameData }) {
             />
             <span className="grow">Supervisor districts</span>
             <span className="muted small">{data.districts.features.length}</span>
+          </label>
+
+          <label className="sub">
+            <input
+              type="checkbox"
+              checked={visible.includes('districts:voronoi')}
+              onChange={() => toggle('districts:voronoi')}
+            />
+            <span className="grow">Supervisor districts — Voronoi</span>
+            <span className="muted small">{data.districts.features.length} cells</span>
           </label>
         </li>
 
@@ -85,8 +97,11 @@ export function LayerPanel({ data }: { data: GameData }) {
           Distances
           <span className="muted small">
             Everything the app measures — your distance to the seekers, drift from your
-            zone centre, GPS accuracy, the measuring tool. Question text stays metric, as
-            the rulebook prints it.
+            zone centre, GPS accuracy, the measuring tool. Question text stays metric,
+            as the rulebook prints it — except Radar and Thermometer, which use their own
+            mile-native tiers in Miles &amp; feet rather than a converted km number. Both
+            sides must set the same unit system before the round, exactly like the 4th
+            division house rule below.
           </span>
         </span>
         <div className="seg">
@@ -158,6 +173,56 @@ export function LayerPanel({ data }: { data: GameData }) {
           onChange={(e) => update({ supervisorDistrictsAsAdmin4: e.target.checked })}
         />
       </label>
+
+      {/*
+        Any rule, boundary or question the table wants to strike before the
+        round — a matching layer nobody likes, a radar tier that runs too
+        long, anything. A disabled question isn't hidden: it is forced into
+        the same null status as one with no subject on the map, so it sinks
+        to the bottom of the Ask list (and can be hidden there) with a reason
+        attached, rather than silently vanishing from the catalog.
+      */}
+      <details className="disableq">
+        <summary>
+          Disable questions
+          <span className="muted small">
+            {settings.disabledQuestionIds.length > 0
+              ? ` — ${settings.disabledQuestionIds.length} of ${QUESTIONS.length} off`
+              : ` — all ${QUESTIONS.length} in play`}
+          </span>
+        </summary>
+        <p className="muted small">
+          Turned off here, a question can’t be asked — it drops into the Ask list’s null
+          group instead. Both sides must agree before the round starts.
+        </p>
+        {CATEGORY_ORDER.map((cat) => {
+          const inCat = QUESTIONS.filter((q) => q.category === cat);
+          if (!inCat.length) return null;
+          return (
+            <div key={cat} className="disableq-cat">
+              <h4>{CATEGORY_META[cat].title}</h4>
+              <ul className="list layers">
+                {inCat.map((q) => {
+                  const rq = resolveForUnits(q, settings.units);
+                  const off = settings.disabledQuestionIds.includes(q.id);
+                  return (
+                    <li key={q.id} className="layerrow">
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={!off}
+                          onChange={() => toggleQuestionDisabled(q.id)}
+                        />
+                        <span className={`grow${off ? ' muted' : ''}`}>{rq.label}</span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          );
+        })}
+      </details>
     </div>
   );
 }
