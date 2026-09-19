@@ -40,7 +40,7 @@ export type SyncSettings = {
 };
 
 export type GamePayload = {
-  game: {
+  session: {
     id: string;
     user_id: string;
     team_id: string;
@@ -50,7 +50,7 @@ export type GamePayload = {
     played_on: string;
     raw_state: { round: SanitizedRound; asks: SanitizedAsk[] };
   };
-  round: SanitizedRound & { game_id: string };
+  round: SanitizedRound & { session_id: string };
   asks: (SanitizedAsk & { round_id: string })[];
 };
 
@@ -86,8 +86,8 @@ function sanitizeAsk(a: AskEntry, seq: number, playedOn: string): SanitizedAsk {
 /**
  * Builds the payload for one finished round, applying every rule this
  * phase's history sync is bound by: station ids and jittered radar/
- * thermometer points only, dates only, one games row per synced round (the
- * app has no broader "game" grouping yet — see architecture notes).
+ * thermometer points only, dates only, one sessions row per synced round
+ * (the app has no broader "game" grouping yet — see architecture notes).
  *
  * Never called before `round.endedAt` is set.
  */
@@ -96,7 +96,7 @@ export function buildGamePayload(
   settings: SyncSettings,
   profile: LocalProfile,
   team: LocalTeam,
-  gameId: string,
+  sessionId: string,
 ): GamePayload {
   if (!round.endedAt) throw new Error('buildGamePayload called on a round with no endedAt');
 
@@ -115,8 +115,8 @@ export function buildGamePayload(
   const asks = round.asks.map((a, i) => sanitizeAsk(a, i, playedOn));
 
   return {
-    game: {
-      id: gameId,
+    session: {
+      id: sessionId,
       user_id: profile.id,
       team_id: team.id,
       city: 'sf',
@@ -125,7 +125,7 @@ export function buildGamePayload(
       played_on: playedOn,
       raw_state: { round: roundMeta, asks },
     },
-    round: { ...roundMeta, game_id: gameId },
+    round: { ...roundMeta, session_id: sessionId },
     asks: asks.map((a) => ({ ...a, round_id: round.id })),
   };
 }

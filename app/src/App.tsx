@@ -19,6 +19,7 @@ import { LayerPanel } from './ui/LayerPanel';
 import { RoundGate } from './ui/RoundGate';
 import { Diagnostics } from './ui/Diagnostics';
 import { ResultsPanel } from './ui/ResultsPanel';
+import { checkEntitlement, hasCachedValidEntitlement } from './payments/entitlement';
 
 export default function App() {
   const [data, setData] = useState<GameData | null>(null);
@@ -61,6 +62,39 @@ export default function App() {
   useEffect(() => {
     loadGameData().then(setData).catch((e) => setLoadError(String(e)));
     requestPersistence();
+  }, []);
+
+  // null = not checked yet, so the paywall never flashes before the (fast,
+  // local) cache read resolves.
+  const [entitled, setEntitled] = useState<boolean | null>(null);
+  const refreshEntitlement = () => checkEntitlement().then((r) => setEntitled((was) => r.eligible || was === true));
+
+  useEffect(() => {
+    // Strip Checkout's own return param (?checkout=success|cancel) so a
+    // reload doesn't re-trigger anything; the entitlement refresh below is
+    // unconditional either way, since success/cancel both just mean "go
+    // check the real state."
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('checkout')) {
+      params.delete('checkout');
+      const rest = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
+    }
+
+    let cancelled = false;
+    (async () => {
+      // Cached state first, so an already-activated device isn't stuck on
+      // "checking" while offline. checkEntitlement() below can only raise
+      // this to true (a stale "was eligible" cache never wins over a live
+      // "no" from the server that actually reached it) — see
+      // refreshEntitlement's `r.eligible || was === true`, which folds a
+      // reachable-but-negative check together with an unreachable one the
+      // same way.
+      const cachedOk = await hasCachedValidEntitlement();
+      if (!cancelled) setEntitled(cachedOk);
+      if (!cancelled) refreshEntitlement();
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   /**
@@ -251,7 +285,12 @@ export default function App() {
         }}
       />
 
-      <MapToolbar data={data} alive={evaluated.alive} total={data.stations.length} />
+      <MapToolbar
+        data={data}
+        alive={evaluated.alive}
+        total={data.stations.length}
+        canMeasure={!!round && !round.endedAt}
+      />
 
       <div className="sheet">
         <button
@@ -272,7 +311,7 @@ export default function App() {
         ) : tab === 'results' ? (
           <ResultsPanel data={data} />
         ) : !round || round.endedAt ? (
-          <RoundGate />
+          <RoundGate canStart={entitled === true} onRestored={refreshEntitlement} />
         ) : role === 'seeker' ? (
           <SeekerPanel
             data={data}

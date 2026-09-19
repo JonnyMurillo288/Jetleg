@@ -236,7 +236,7 @@ one place this rule is enforced in code, not just in review:
 - Every timestamp becomes a `played_on` date; ask order survives as a plain
   `seq` integer. `Round.duration_s` is the one derived number that still
   ships, computed from the device's own local instants.
-- `games.raw_state` carries a full sanitized snapshot of the round
+- `sessions.raw_state` carries a full sanitized snapshot of the round
   alongside the normalized `rounds`/`asks` rows, so history stays returnable
   even if the normalized schema changes shape later.
 
@@ -260,9 +260,23 @@ as infinite recursion — every reference to a table re-runs that table's RLS,
 including from inside another policy's subquery, so a table's policy can
 never safely read itself. Fixed with a `security definer` helper
 (`my_team_ids()`) that runs as the function owner and so bypasses RLS on
-that one internal lookup instead of re-triggering it; `games`, `rounds` and
-`asks` policies call the same helper rather than re-deriving team membership
-each with their own subquery.
+that one internal lookup instead of re-triggering it; `sessions`, `rounds`
+and `asks` policies call the same helper rather than re-deriving team
+membership each with their own subquery.
+
+### Games, teams, and the sessions rename (`0004_games_teams.sql`)
+
+The table originally called `games` here — one team's synced history of a
+completed round — was renamed to **`sessions`** to free up `games` for a
+different, later concept: a container of multiple **teams** (opponents),
+each holding multiple players via the existing `team_members`. Full detail,
+including the entitlement-scoping this enables, lives in
+`references/payments.md` — the short version: `teams.game_id` and
+`entitlements.game_id` both point at the new `games` table, and because
+`teams` was already broadly readable by any signed-in device, "which teams
+are in my game" already works with zero new RLS policy. `rounds`/`asks`
+stay exactly as gated as before — this only ever exposes that a team
+exists, never its round data or hider position.
 
 ### Sync path
 
@@ -282,8 +296,19 @@ testing and production. `app/verify-sync.ts` (run via `tsx`, not
 Playwright — this path never touches the map) exercises the real
 identity → payload → insert path against a running Postgres and is the
 test that actually matters: it signs in a second, unrelated device and
-asserts it reads back zero rows for another team's game, rather than
+asserts it reads back zero rows for another team's session, rather than
 trusting the schema to imply that on its own.
+
+## Payments (`supabase/functions/`, `app/src/payments/`)
+
+Phase 3 of `ROADMAP.md`: starting a round (including fully local, solo
+play) requires a paid, per-device entitlement — a deliberate departure from
+this project's own "sign-in and network should never be required to play"
+invariant. Map display (the map itself, layers, round history/export, the
+Results tab) stays free; game mechanics (starting a round, asking/answering
+questions, the elimination shading, Measure/Plan) require an active,
+entitled round. **Full detail — schema, RLS, edge functions, the admin
+grant tool, the gotchas — lives in `references/payments.md`.**
 
 ## Pipeline (`pipeline/`, 8 steps)
 

@@ -83,8 +83,8 @@ async function signInDevice(displayName: string) {
   check('device A can join its own team', !memberError, memberError?.message);
 
   const round = makeRound();
-  const gameId = crypto.randomUUID();
-  const payload = buildGamePayload(round, settings, profileA, { id: team!.id, joinCode: team!.join_code }, gameId);
+  const sessionId = crypto.randomUUID();
+  const payload = buildGamePayload(round, settings, profileA, { id: team!.id, joinCode: team!.join_code }, sessionId);
 
   const radarAsk = payload.asks.find((a) => a.category === 'radar')!;
   const matchingAsk = payload.asks.find((a) => a.category === 'matching')!;
@@ -97,14 +97,14 @@ async function signInDevice(displayName: string) {
   check('no ask carries a raw askedAt/time field', !('askedAt' in radarAsk) && !('asked_at' in radarAsk));
   check('payload never carries seekerPin in any form', JSON.stringify(payload).toLowerCase().includes('seekerpin') === false);
 
-  const { error: gameError } = await deviceA.from('games').insert(payload.game);
-  check('device A can insert its own game', !gameError, gameError?.message);
+  const { error: sessionError } = await deviceA.from('sessions').insert(payload.session);
+  check('device A can insert its own session', !sessionError, sessionError?.message);
   const { error: roundError } = await deviceA.from('rounds').insert(payload.round);
   check('device A can insert its own round', !roundError, roundError?.message);
   const { error: asksError } = await deviceA.from('asks').insert(payload.asks);
   check('device A can insert its own asks', !asksError, asksError?.message);
 
-  const { data: readBack } = await deviceA.from('games').select('raw_state').eq('id', gameId).single();
+  const { data: readBack } = await deviceA.from('sessions').select('raw_state').eq('id', sessionId).single();
   check('device A reads back the row it wrote', !!readBack, readBack);
   check(
     'stored row still shows the jittered point, not the true one',
@@ -112,12 +112,12 @@ async function signInDevice(displayName: string) {
   );
 
   // The fairness-shaped check: an unrelated device, also validly signed in,
-  // must not be able to read this game at all.
+  // must not be able to read this session at all.
   const { client: deviceB } = await signInDevice('verify-sync device B (outsider)');
-  const { data: outsiderRead, error: outsiderError } = await deviceB.from('games').select('id').eq('id', gameId);
-  check('an outsider device reads back zero rows for this game', !outsiderError && (outsiderRead?.length ?? -1) === 0, outsiderRead);
+  const { data: outsiderRead, error: outsiderError } = await deviceB.from('sessions').select('id').eq('id', sessionId);
+  check('an outsider device reads back zero rows for this session', !outsiderError && (outsiderRead?.length ?? -1) === 0, outsiderRead);
 
-  const { error: outsiderInsertError } = await deviceB.from('games').insert({ ...payload.game, id: crypto.randomUUID() });
+  const { error: outsiderInsertError } = await deviceB.from('sessions').insert({ ...payload.session, id: crypto.randomUUID() });
   check('an outsider device cannot insert into a team it is not on', !!outsiderInsertError);
 
   console.log(`\n${fail.length === 0 ? 'ALL PASS' : `${fail.length} FAILED: ${fail.join(', ')}`}`);

@@ -145,6 +145,7 @@ button.link.danger { color: var(--no); }
 button.link.grow { flex: 1; }
 
 input[type="number"] { font: inherit; width: 90px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }
+input[type="email"] { font: inherit; flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }
 select { font: inherit; padding: 10px; border: 1px solid var(--line); border-radius: 8px; width: 100%; min-height: 44px; }
 
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

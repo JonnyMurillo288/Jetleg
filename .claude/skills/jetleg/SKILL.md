@@ -10,6 +10,7 @@ generates static map data at build time; `app/` is the React + MapLibre PWA.
 No server, no accounts — each player's state is local to their phone.
 
 - **Deep architecture, engine internals, file-by-file:** `references/architecture.md`
+- **Payments — schema, edge functions, admin grants, gating:** `references/payments.md`; product-facing doc at `PAYMENTS.md`, testing at `PAYMENTS_TESTING.md`, both at the repo root
 - **Planned work — backend, accounts, payments, native app:** `ROADMAP.md` at the repo root
 
 ## The one rule
@@ -51,6 +52,7 @@ npm run verify:rules  # verify-rules.cjs — elimination rule, voronoi parity, h
 npm run verify:units  # verify-units.cjs — one unit everywhere; sweeps every surface in metric
 npm run verify:sync   # verify-sync.ts — game-history sync against a live Supabase (needs `supabase start`)
 npm run verify:results # verify-results.cjs — plays a real round, ends it, checks the Results tab against it
+npm run verify:payments # verify-payments.ts — entitlement RPC + RLS against a live Supabase (needs `supabase start` + `supabase functions serve`)
 TARGET=https://jetleg-sf.pages.dev/ npm run verify:tools   # any suite, against a deployment
 ```
 
@@ -196,6 +198,14 @@ band or an empty POI layer is a real signal, not noise to silence.
   through a `security definer` helper function instead (`my_team_ids()` in
   `supabase/migrations/0001_game_history.sql`). Caught by actually running
   the migration and inserting a row, not by reading the SQL.
+- **A plpgsql OUT parameter named the same as a table column is ambiguous**
+  inside that function's own embedded SQL — `check_and_activate_entitlement()`
+  in `supabase/migrations/0002_entitlements.sql` named its OUT params
+  `product`/`expires_at` to match `entitlements`' own columns, and an
+  unqualified reference inside the function body errored
+  `column reference "expires_at" is ambiguous` at call time, not at
+  migration time. Qualify every reference with the table name. Caught by
+  actually calling the RPC from `verify-payments.ts`.
 
 ## Running it on a phone
 

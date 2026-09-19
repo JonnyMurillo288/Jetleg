@@ -1,8 +1,16 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { useGame } from '../store/game';
+import { PaywallModal } from './PaywallModal';
 
-/** Shown when there is no active round: start one, or resume/export an old one. */
-export function RoundGate() {
+/**
+ * Shown when there is no active round: start one, or resume/export an old
+ * one. `canStart` gates only the "Start a new round" action — viewing and
+ * exporting rounds already played stays available regardless of
+ * entitlement, since nothing asked for that to be paywalled too.
+ */
+export function RoundGate(props: { canStart: boolean; onRestored: () => void }) {
+  const { canStart, onRestored } = props;
+  const [showPaywall, setShowPaywall] = useState(false);
   const role = useGame((s) => s.role);
   const rounds = useGame((s) => s.rounds).filter((r) => r.role === role);
   const startRound = useGame((s) => s.startRound);
@@ -35,7 +43,18 @@ export function RoundGate() {
           : 'Claim your station, then use the answer assistant to reply truthfully and fast.'}
       </p>
 
-      <button className="primary big" onClick={() => startRound()}>Start a new round</button>
+      {canStart ? (
+        <button className="primary big" onClick={() => startRound()}>Start a new round</button>
+      ) : showPaywall ? (
+        <PaywallModal
+          onRestored={() => {
+            onRestored();
+            setShowPaywall(false);
+          }}
+        />
+      ) : (
+        <button className="primary big" onClick={() => setShowPaywall(true)}>Start a new round</button>
+      )}
 
       {rounds.length > 0 && (
         <>

@@ -10,19 +10,37 @@ export type LocalTeam = { id: string; joinCode: string };
 /**
  * A device identity with no visible sign-in: Supabase anonymous auth gives a
  * real `auth.uid()` for RLS to gate on, with none of the email/password flow
- * "not login yet" was meant to avoid. `displayName` is the only thing the
- * player actually enters.
+ * "not login yet" was meant to avoid. Shared by team-sync identity below
+ * (`profiles`, which additionally needs a display name) and by payments
+ * (`entitlements`, keyed on this id directly, needing no name at all — a
+ * solo player who never touches sync shouldn't be forced to pick one just
+ * to pay).
  */
+export async function getOrCreateDeviceId(): Promise<string | null> {
+  if (!supabase) return null;
+
+  const cached = await idbGet<LocalProfile>(PROFILE_KEY);
+  if (cached) return cached.id;
+
+  const { data: existing } = await supabase.auth.getSession();
+  if (existing.session?.user) return existing.session.user.id;
+
+  const { data, error } = await supabase.auth.signInAnonymously();
+  if (error || !data.user) return null;
+  return data.user.id;
+}
+
+/** `displayName` is the only thing the player actually enters. */
 export async function getOrCreateProfile(displayName: string): Promise<LocalProfile | null> {
   if (!supabase) return null;
 
   const cached = await idbGet<LocalProfile>(PROFILE_KEY);
   if (cached) return cached;
 
-  const { data, error } = await supabase.auth.signInAnonymously();
-  if (error || !data.user) return null;
+  const id = await getOrCreateDeviceId();
+  if (!id) return null;
 
-  const profile: LocalProfile = { id: data.user.id, displayName };
+  const profile: LocalProfile = { id, displayName };
   const { error: upsertError } = await supabase
     .from('profiles')
     .upsert({ id: profile.id, display_name: displayName });

@@ -1,0 +1,15 @@
+-- Admin-granted tokens (grant-entitlement.ts) have no device to bind to at
+-- creation time -- Jonny is creating these for someone who hasn't opened the
+-- app yet, unlike a Stripe purchase, which always originates from an
+-- already-anonymously-authenticated device. Nullable so an "unclaimed"
+-- grant can exist keyed purely by email.
+--
+-- No RLS change needed: the existing "own row" read policy is
+-- `device_id = auth.uid()`, which a null device_id never satisfies, so an
+-- unclaimed grant stays invisible to every device until claimed. No change
+-- to check_and_activate_entitlement() either, for the same reason. The
+-- existing restore-entitlement function already works unmodified: it finds
+-- a row by email and sets device_id to the caller, regardless of whether
+-- that column started null (an admin grant) or already pointed at a
+-- purchasing device (an ordinary restore).
+alter table entitlements alter column device_id drop not null;

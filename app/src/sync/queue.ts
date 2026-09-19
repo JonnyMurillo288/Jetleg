@@ -15,8 +15,8 @@ async function setQueue(queue: GamePayload[]): Promise<void> {
 async function push(payload: GamePayload): Promise<boolean> {
   if (!supabase) return false;
 
-  const { error: gameError } = await supabase.from('games').insert(payload.game);
-  if (gameError) return false;
+  const { error: sessionError } = await supabase.from('sessions').insert(payload.session);
+  if (sessionError) return false;
 
   const { error: roundError } = await supabase.from('rounds').insert(payload.round);
   if (roundError) return false;

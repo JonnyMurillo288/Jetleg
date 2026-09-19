@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { GameData } from '../data/load';
 import type { Station } from '../engine/types';
 import { useGame } from '../store/game';
@@ -17,10 +17,19 @@ export function MapToolbar({
   data,
   alive,
   total,
+  canMeasure,
 }: {
   data: GameData;
   alive: Station[];
   total: number;
+  /**
+   * Layers is map display (which POI/Voronoi layers are visible) and stays
+   * free always. Measure is a planning aid — it reports how many surviving
+   * zones a circle contains, which is engine-derived — so it's a game
+   * mechanic, gated the same way asking a question is: behind an active
+   * round, which is itself gated behind an entitlement in RoundGate.
+   */
+  canMeasure: boolean;
 }) {
   const [open, setOpen] = useState<'none' | 'layers' | 'measure'>('none');
   const visible = useGame((s) => s.visibleLayers);
@@ -34,6 +43,16 @@ export function MapToolbar({
   const drawn = measure.shapes.length;
   const toggle = (which: 'layers' | 'measure') => setOpen(open === which ? 'none' : which);
 
+  // If a round ends (or was never entitled) while the tool is armed, its
+  // button and hint vanish with it — release the map's taps back to the
+  // game rather than leaving them silently swallowed with no visible "Done".
+  useEffect(() => {
+    if (!canMeasure) {
+      if (measure.tool !== 'off') setTool('off');
+      setOpen((o) => (o === 'measure' ? 'none' : o));
+    }
+  }, [canMeasure]);
+
   return (
     <div className="maptools">
       <div className="maptools-row">
@@ -44,13 +63,15 @@ export function MapToolbar({
         >
           Layers{cells > 0 && open !== 'layers' ? ` · ${cells}` : ''}
         </button>
-        <button
-          className={`maplayers-btn ${open === 'measure' || measure.tool !== 'off' ? 'on' : ''}`}
-          onClick={() => toggle('measure')}
-          aria-expanded={open === 'measure'}
-        >
-          Measure{drawn > 0 && open !== 'measure' ? ` · ${drawn}` : ''}
-        </button>
+        {canMeasure && (
+          <button
+            className={`maplayers-btn ${open === 'measure' || measure.tool !== 'off' ? 'on' : ''}`}
+            onClick={() => toggle('measure')}
+            aria-expanded={open === 'measure'}
+          >
+            Measure{drawn > 0 && open !== 'measure' ? ` · ${drawn}` : ''}
+          </button>
+        )}
       </div>
 
       {/*
@@ -58,7 +79,7 @@ export function MapToolbar({
         say so, and put the way out where the thumb already is. The freeze this
         avoids is a player wondering why tapping a station no longer claims it.
       */}
-      {measure.tool !== 'off' && (
+      {canMeasure && measure.tool !== 'off' && (
         <div className="toolhint">
           <span className="grow">
             {measure.tool === 'circle'
@@ -80,7 +101,7 @@ export function MapToolbar({
       )}
 
       {open === 'layers' && <LayersPanel data={data} alive={alive.length} total={total} />}
-      {open === 'measure' && <MeasurePanel alive={alive} total={total} onArm={() => setOpen('none')} />}
+      {canMeasure && open === 'measure' && <MeasurePanel alive={alive} total={total} onArm={() => setOpen('none')} />}
     </div>
   );
 }

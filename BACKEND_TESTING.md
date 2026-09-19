@@ -71,7 +71,7 @@ error under it. If a migration is broken, this is where it says so — not
 three steps later when a query mysteriously fails.
 
 **Studio** (`http://127.0.0.1:54323`) is a Postgres GUI — open it and browse
-the `games`/`rounds`/`asks`/`profiles`/`teams` tables directly. The fastest
+the `sessions`/`rounds`/`asks`/`profiles`/`teams`/`games` tables directly. The fastest
 way to see what a sync actually wrote.
 
 ---
@@ -103,10 +103,10 @@ Runs `verify-sync.ts` via `tsx` against whatever `SUPABASE_URL`/
 not a mock of it:
 
 1. Signs in anonymously as a device, creates a team, joins it
-2. Builds a synthetic finished round and inserts `games`/`rounds`/`asks`
+2. Builds a synthetic finished round and inserts `sessions`/`rounds`/`asks`
 3. Reads the row back and confirms the stored point is the jittered one
 4. **Signs in as a second, unrelated device and asserts it reads back zero
-   rows for the first device's game, and cannot insert into a team it's not
+   rows for the first device's session, and cannot insert into a team it's not
    on** — this is the fairness-shaped check; the schema having RLS enabled
    doesn't mean the policies are actually correct, only running them does
 

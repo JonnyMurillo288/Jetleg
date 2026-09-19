@@ -100,6 +100,15 @@ hider_state  round_id, station_id, seeker_pin        -- no seeker read policy
 `asks` is already the app's data model — the store keeps an append-only log and
 recomputes from it. That ports directly.
 
+**Naming note, added when payments needed a real "game" concept**: the
+`games` row above is now called **`sessions`** in the real schema (one
+team's synced history of a completed round) — `games` was reused for a
+different, later thing: a container of multiple *teams* (this sketch's
+`players` role, one layer up), which entitlements can now be scoped to. See
+`.claude/skills/jetleg/references/payments.md`. This sketch's `players`
+table still doesn't exist — team membership is `team_members`, and a
+"player" is a `profiles` row on a team, not a row on a game directly.
+
 ### Work
 
 - [x] Supabase project, schema, RLS policies — local project + migration
@@ -164,6 +173,36 @@ and just is not stored.
 
 **Goal:** cover hosting, and gate whatever is worth gating.
 
+**Status: shipped**, on branch `backend/game-history` (alongside Phase 1,
+which it depends on for device identity). See
+`.claude/skills/jetleg/references/architecture.md` → "Payments" for the
+schema and `app/src/payments/` / `supabase/functions/` for the code. The
+model actually shipped, decided rather than left as the open questions
+below:
+
+- **What's gated**: starting any round at all, including fully local solo
+  play — narrower work below had left this genuinely open ("free: solo/local
+  play" was one option on the table); this went the other way, a deliberate
+  departure from "sign-in should be optional and the local path must keep
+  working" at the top of this document. Viewing/exporting rounds already
+  played stays free regardless.
+- **Pricing**: one-time Stripe Checkout payments (not a subscription) —
+  $0.99 for a 72-hour window, $3.50 for a 7-day window. Every device needs
+  its own; there's no team-owner-pays-for-everyone.
+- **When the clock starts**: first use, not purchase — buying ahead of game
+  day doesn't burn the window before anyone plays.
+- **iOS strategy**: not addressed by this slice at all — there is no native
+  app yet (Phase 5 hasn't started), so "sell only on the web" (this
+  document's own "cheap way out") was the only question actually in play,
+  and it's moot until Phase 5 is real. The Apple IAP decision below is
+  **still open** the moment a native app exists.
+- **Restore**: email lookup, not identity-verified (no OTP) — an accepted
+  low-stakes tradeoff for a sub-$4 app, not an oversight. A restore
+  transfers the entitlement to the new device rather than copying it.
+- Apple Pay domain verification is explicitly deferred, not v1 — Checkout
+  works without it, the Apple Pay button on the Checkout page just won't
+  appear until that file exists.
+
 ### Read this before building anything
 
 **Apple requires In-App Purchase for digital content sold inside a native iOS
@@ -206,12 +245,24 @@ are billing.
 
 ### Work
 
-- [ ] Decide the model and the iOS strategy
-- [ ] Stripe products, Checkout, customer portal
-- [ ] Webhook handler → entitlement table
-- [ ] Entitlement checks server-side; the client only ever *reflects* state
-- [ ] Apple Pay domain verification
-- [ ] Restore purchases, refunds, subscription lapse
+- [x] Decide the model — see "Status: shipped" above; the iOS half of this
+      question is still open, deferred until Phase 5 is real
+- [x] Stripe products, Checkout — `supabase/functions/stripe-checkout`. No
+      customer portal yet: these are one-time purchases, not subscriptions,
+      so there's no ongoing billing relationship to manage
+- [x] Webhook handler → entitlement table —
+      `supabase/functions/stripe-webhook`, `entitlements` in
+      `0002_entitlements.sql`
+- [x] Entitlement checks server-side; the client only ever *reflects*
+      state — `check_and_activate_entitlement()`, security-definer, is the
+      only thing that ever activates a purchase; RLS grants the client no
+      insert/update on the table at all
+- [ ] Apple Pay domain verification — deferred, not v1
+- [x] Restore purchases — `supabase/functions/restore-entitlement`, email
+      lookup, transfers rather than copies. Refunds and subscription lapse:
+      moot for now (one-time purchases, no subscription to lapse); a Stripe
+      refund today doesn't revoke the row it already granted — not built,
+      since v1 has no volume to make it worth the work yet
 
 ---
 

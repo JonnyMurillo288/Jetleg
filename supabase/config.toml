@@ -386,6 +386,14 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+# Stripe calls this one directly with no Supabase auth header at all, so the
+# platform's own JWT check must be off or every webhook delivery 401s before
+# our own Stripe-Signature verification ever runs. stripe-checkout and
+# restore-entitlement keep the default (true) — both require a real
+# anonymous-auth device to be calling.
+[functions.stripe-webhook]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327
