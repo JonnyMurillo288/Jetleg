@@ -160,10 +160,13 @@ export default function App() {
   // so the seekers' travel is labelled with its length in the same hand.
   const thermoPath = useMemo(
     () =>
-      role === 'hider' && hiderThermo.start && hiderThermo.end
+      // Points from the seekers' exact midpoint+angle numbers are an
+      // arbitrary distance apart, not a real travelled path — drawing them
+      // as a measured line would print a fabricated length.
+      role === 'hider' && hiderThermo.start && hiderThermo.end && !hiderThermo.exact
         ? [hiderThermo.start, hiderThermo.end]
         : undefined,
-    [role, hiderThermo.start, hiderThermo.end],
+    [role, hiderThermo.start, hiderThermo.end, hiderThermo.exact],
   );
   const measureFc = useMemo(
     () => buildMeasureFc(measure, settings.units, thermoPath),

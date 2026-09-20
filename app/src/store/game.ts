@@ -131,7 +131,18 @@ type State = {
    * send over. So the hider places two points by hand, exactly as they would
    * with the measuring tool, and `arm` says which one the next map tap sets.
    */
-  hiderThermo: { start?: [number, number]; end?: [number, number]; arm: 'none' | 'start' | 'end' };
+  hiderThermo: {
+    start?: [number, number];
+    end?: [number, number];
+    arm: 'none' | 'start' | 'end';
+    /**
+     * Set when start/end came from the seekers' exact midpoint+angle numbers
+     * rather than a tap on the map — the two points are then an arbitrary
+     * distance apart (only their direction and midpoint are real), so the UI
+     * must not show that gap as a travelled distance.
+     */
+    exact?: boolean;
+  };
   measure: MeasureState;
   /**
    * Questions being compared before one is actually asked, at most three.
@@ -167,6 +178,7 @@ type State = {
   toggleHideDeadQuestions: () => void;
   armHiderThermo: (which: 'none' | 'start' | 'end') => void;
   placeHiderThermo: (ll: [number, number]) => void;
+  setHiderThermoExact: (start: [number, number], end: [number, number]) => void;
   clearHiderThermo: () => void;
   setMeasureTool: (t: MeasureState['tool']) => void;
   setMeasureRadius: (m: number) => void;
@@ -306,8 +318,10 @@ export const useGame = create<State>()(
       placeHiderThermo: (ll) => {
         const t = get().hiderThermo;
         if (t.arm === 'none') return;
-        set({ hiderThermo: { ...t, [t.arm]: ll, arm: 'none' } });
+        set({ hiderThermo: { ...t, [t.arm]: ll, arm: 'none', exact: false } });
       },
+
+      setHiderThermoExact: (start, end) => set({ hiderThermo: { start, end, arm: 'none', exact: true } }),
 
       clearHiderThermo: () => set({ hiderThermo: { arm: 'none' } }),
 

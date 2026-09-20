@@ -4,10 +4,11 @@ import { useGame, newAskId, type Round } from '../store/game';
 import { CATEGORY_META, CATEGORY_ORDER, QUESTIONS, QUESTIONS_BY_ID, STATION_NAME_LENGTH_QUESTION_ID, resolveForUnits } from '../engine/questions';
 import { nearestFeature, distanceToFeatureM } from '../engine/regions';
 import { stationNameLength } from '../engine/stationName';
+import { pointsFromMidAngle } from '../engine/thermoHandoff';
 import { metres } from '../engine/project';
 import { ZONE_RADIUS_M, type evaluate } from '../engine/candidates';
 import type { Answer, AskEntry, Category, LngLat, Question, Station } from '../engine/types';
-import { formatDistance } from './units';
+import { formatDistance, fromRadiusInput, radiusUnit, toRadiusInput } from './units';
 
 type Evaluated = ReturnType<typeof evaluate>;
 
@@ -48,6 +49,7 @@ export function HiderPanel(props: {
   const thermo = useGame((s) => s.hiderThermo);
   const armThermo = useGame((s) => s.armHiderThermo);
   const clearThermo = useGame((s) => s.clearHiderThermo);
+  const setThermoExact = useGame((s) => s.setHiderThermoExact);
 
   const here = origin;
   const seekers = round.seekerPin ?? null;
@@ -217,6 +219,7 @@ export function HiderPanel(props: {
               units={settings.units}
               onArm={armThermo}
               onClear={clearThermo}
+              onSetExact={setThermoExact}
             />
           )}
 
@@ -269,47 +272,114 @@ function RadarDistance(props: { here: LngLat | null; seekers: LngLat | null; uni
 }
 
 /**
- * The seekers' thermometer run, placed by hand.
+ * The seekers' thermometer run.
  *
- * A thermometer is the one question a single seeker pin cannot answer: it needs
- * both ends of their travel, which they send over. Same mechanics as the
- * measuring tool — arm a point, tap the map — and the leg is drawn and labelled
- * by that tool's own renderer, so the two read identically.
+ * A thermometer is the one question a single seeker pin cannot answer: it
+ * needs both ends of their travel. Two ways to get them:
+ *
+ * - **Tap points**: place them by hand on the map, same mechanics as the
+ *   measuring tool — arm a point, tap the map — with the leg drawn and
+ *   labelled by that tool's own renderer.
+ * - **Exact numbers**: the seekers' app computes their dividing line as a
+ *   midpoint and an angle (`thermometerMidAngle`) and the hider pastes them
+ *   in here. `pointsFromMidAngle` reconstructs a start/end pair that feeds
+ *   the *same* `thermometerRegion` the seekers' answer will actually use, so
+ *   the two sides can never disagree over where the line falls — only over
+ *   which side is hotter, which is what the Hotter/Colder buttons are for.
  */
 function ThermoRun(props: {
-  thermo: { start?: LngLat; end?: LngLat; arm: 'none' | 'start' | 'end' };
+  thermo: { start?: LngLat; end?: LngLat; arm: 'none' | 'start' | 'end'; exact?: boolean };
   units: 'imperial' | 'metric';
   onArm: (w: 'none' | 'start' | 'end') => void;
   onClear: () => void;
+  onSetExact: (start: LngLat, end: LngLat) => void;
 }) {
-  const { thermo, units, onArm, onClear } = props;
-  const travelled = thermo.start && thermo.end ? metres(thermo.start, thermo.end) : null;
+  const { thermo, units, onArm, onClear, onSetExact } = props;
+  const [mode, setMode] = useState<'tap' | 'exact'>('tap');
+  const [midInput, setMidInput] = useState('');
+  const [angleInput, setAngleInput] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const travelled = thermo.start && thermo.end && !thermo.exact ? metres(thermo.start, thermo.end) : null;
+
+  const applyExact = () => {
+    const m = midInput.trim().match(/^(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)$/);
+    const angle = Number(angleInput);
+    if (!m || !Number.isFinite(angle)) {
+      setError('Enter the midpoint as "lat, lon" and the angle in degrees.');
+      return;
+    }
+    const lat = Number(m[1]);
+    const lon = Number(m[2]);
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      setError('That midpoint doesn’t look like a valid lat/lon.');
+      return;
+    }
+    const { start, end } = pointsFromMidAngle([lon, lat], ((angle % 360) + 360) % 360);
+    onSetExact(start, end);
+    setError(null);
+  };
 
   return (
     <div className="thermo pad-x">
-      <div className="row">
-        <button
-          className={thermo.arm === 'start' ? 'primary' : ''}
-          onClick={() => onArm(thermo.arm === 'start' ? 'none' : 'start')}
-        >
-          {thermo.arm === 'start' ? 'Tap the map…' : thermo.start ? 'Move start' : 'Set start'}
-        </button>
-        <button
-          className={thermo.arm === 'end' ? 'primary' : ''}
-          onClick={() => onArm(thermo.arm === 'end' ? 'none' : 'end')}
-        >
-          {thermo.arm === 'end' ? 'Tap the map…' : thermo.end ? 'Move end' : 'Set end'}
-        </button>
-        {(thermo.start || thermo.end) && (
-          <button className="link" onClick={onClear}>Clear</button>
-        )}
+      <div className="seg small">
+        <button className={mode === 'tap' ? 'on' : ''} onClick={() => setMode('tap')}>Tap points</button>
+        <button className={mode === 'exact' ? 'on' : ''} onClick={() => setMode('exact')}>Exact numbers</button>
       </div>
+
+      {mode === 'tap' ? (
+        <div className="row">
+          <button
+            className={thermo.arm === 'start' ? 'primary' : ''}
+            onClick={() => onArm(thermo.arm === 'start' ? 'none' : 'start')}
+          >
+            {thermo.arm === 'start' ? 'Tap the map…' : thermo.start ? 'Move start' : 'Set start'}
+          </button>
+          <button
+            className={thermo.arm === 'end' ? 'primary' : ''}
+            onClick={() => onArm(thermo.arm === 'end' ? 'none' : 'end')}
+          >
+            {thermo.arm === 'end' ? 'Tap the map…' : thermo.end ? 'Move end' : 'Set end'}
+          </button>
+        </div>
+      ) : (
+        <div className="col">
+          <label className="row small">
+            Midpoint (lat, lon)
+            <input
+              type="text"
+              inputMode="decimal"
+              placeholder="37.779300, -122.419400"
+              value={midInput}
+              onChange={(e) => setMidInput(e.target.value)}
+            />
+          </label>
+          <label className="row small">
+            Angle (°)
+            <input
+              type="number"
+              inputMode="decimal"
+              placeholder="137.4"
+              value={angleInput}
+              onChange={(e) => setAngleInput(e.target.value)}
+            />
+          </label>
+          <button onClick={applyExact}>Set dividing line</button>
+          {error && <p className="warntext small">{error}</p>}
+        </div>
+      )}
+
+      {(thermo.start || thermo.end) && (
+        <button className="link" onClick={onClear}>Clear</button>
+      )}
+
       <p className="muted small">
-        {travelled !== null
-          ? `They travelled ${formatDistance(travelled, units)}. Hotter or colder cuts the board along the perpendicular of that line.`
-          : !thermo.start
-            ? 'Place where the seekers started, then where they ended.'
-            : 'Now place where they ended.'}
+        {thermo.exact && thermo.start
+          ? 'Dividing line set from the seekers’ exact numbers. Hotter or colder cuts the board along it.'
+          : travelled !== null
+            ? `They travelled ${formatDistance(travelled, units)}. Hotter or colder cuts the board along the perpendicular of that line.`
+            : mode === 'tap'
+              ? !thermo.start ? 'Place where the seekers started, then where they ended.' : 'Now place where they ended.'
+              : 'Paste the exact midpoint and angle the seekers sent you.'}
       </p>
     </div>
   );
@@ -408,9 +478,14 @@ function HiderAnswer(props: {
 }) {
   const { q, data, here, seekers, units, thermo, onLog } = props;
   const [open, setOpen] = useState(false);
+  // Radar's free-choice tier has no fixed distance — the seeker states one
+  // out loud, and this is where the hider types it back in to get the same
+  // computed inner/outer answer the fixed tiers already give.
+  const [chooseM, setChooseM] = useState(1000);
+  const isChoose = q.id === 'radar-choose';
   const answer = useMemo(
-    () => (open && here ? computeAnswer(q, data, here, seekers, units) : null),
-    [open, here, q, data, seekers, units],
+    () => (open && here ? computeAnswer(q, data, here, seekers, units, isChoose ? chooseM : undefined) : null),
+    [open, here, q, data, seekers, units, isChoose, chooseM],
   );
 
   /**
@@ -419,11 +494,11 @@ function HiderAnswer(props: {
    */
   const thermoReady = q.category === 'thermometer' && !!thermo.start && !!thermo.end;
 
-  const loggable: { answer: Answer; label: string; tone: 'yes' | 'no' }[] | null =
+  const loggable: { answer: Answer; label: string; tone: 'yes' | 'no'; extra?: Partial<AskEntry> }[] | null =
     q.answerKind === 'yesno'
       ? [
-          { answer: { kind: 'yesno', value: 'yes' }, label: 'Yes', tone: 'yes' },
-          { answer: { kind: 'yesno', value: 'no' }, label: 'No', tone: 'no' },
+          { answer: { kind: 'yesno', value: 'yes' }, label: 'Yes', tone: 'yes', extra: isChoose ? { distanceM: chooseM } : undefined },
+          { answer: { kind: 'yesno', value: 'no' }, label: 'No', tone: 'no', extra: isChoose ? { distanceM: chooseM } : undefined },
         ]
       : q.answerKind === 'closerFurther'
         ? [
@@ -443,6 +518,20 @@ function HiderAnswer(props: {
           <p className="qtext">“{q.text}”</p>
           {q.spec && <p className="muted small"><b>Photo spec:</b> {q.spec}</p>}
           {q.caveat && <p className="muted small">{q.caveat}</p>}
+          {isChoose && (
+            <label className="row small">
+              Distance they chose
+              <input
+                className="num"
+                type="number"
+                min={1}
+                step={units === 'metric' ? 50 : 100}
+                value={toRadiusInput(chooseM, units)}
+                onChange={(e) => setChooseM(fromRadiusInput(Number(e.target.value) || 0, units))}
+              />
+              {radiusUnit(units)}
+            </label>
+          )}
           {answer ? (
             <p className={`hint ${answer.kind}`}>{answer.text}</p>
           ) : (
@@ -465,7 +554,7 @@ function HiderAnswer(props: {
                 >Colder</button>
               </div>
               {!thermoReady && (
-                <p className="muted small">Place the seekers' start and end points above first.</p>
+                <p className="muted small">Place the seekers' start and end points above first, or enter their exact numbers.</p>
               )}
             </>
           )}
@@ -479,7 +568,7 @@ function HiderAnswer(props: {
                     key={opt.label}
                     className={opt.tone}
                     disabled={!seekers}
-                    onClick={() => onLog(q, opt.answer)}
+                    onClick={() => onLog(q, opt.answer, opt.extra)}
                   >
                     {opt.label}
                   </button>
@@ -510,6 +599,7 @@ function computeAnswer(
   here: LngLat,
   seekers: LngLat | null,
   units: 'imperial' | 'metric',
+  chooseM?: number,
 ): { kind: 'fact' | 'warn'; text: string } | null {
   /*
    * Radar is the one category the assistant can answer outright, and it used to
@@ -519,13 +609,16 @@ function computeAnswer(
   if (q.category === 'radar') {
     if (!seekers) return { kind: 'warn', text: 'Drop the seekers’ pin to get this answer computed.' };
     const d = metres(here, seekers);
-    if (!q.distanceM) {
-      return { kind: 'fact', text: `They are ${formatDistance(d, units)} away. Answer against whatever distance they chose.` };
+    // Fixed tiers carry their own distance; "Choose" has none, so the
+    // distance the hider was just told verbally stands in for it.
+    const radiusM = q.distanceM ?? chooseM;
+    if (!radiusM) {
+      return { kind: 'fact', text: `They are ${formatDistance(d, units)} away. Enter the distance they chose above.` };
     }
-    const within = d <= q.distanceM;
+    const within = d <= radiusM;
     return {
       kind: 'fact',
-      text: `They are ${formatDistance(d, units)} away, so the answer is ${within ? 'YES' : 'NO'}.`,
+      text: `They are ${formatDistance(d, units)} away — ${within ? 'inside' : 'outside'} ${formatDistance(radiusM, units)}, so the answer is ${within ? 'YES' : 'NO'}.`,
     };
   }
 

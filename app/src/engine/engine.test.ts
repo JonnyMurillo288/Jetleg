@@ -7,6 +7,7 @@ import { evaluate, resolveAsk, ZONE_RADIUS_M } from './candidates';
 import { planCandidate } from './plan';
 import { thermometerRegion, nearestFeature, measuringRegion, matchingRegion, districtFeatureAt } from './regions';
 import { stationNameLength } from './stationName';
+import { thermometerMidAngle, pointsFromMidAngle } from './thermoHandoff';
 import { metres } from './project';
 import type { AskEntry, Answer, Boundary, LngLat, PoiLayer, Station } from './types';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
@@ -175,6 +176,57 @@ describe('thermometer', () => {
     const hotter = thermometerRegion(a, b, true, boundary)!;
     expect(booleanPointInPolygon(point(b), hotter as any)).toBe(true);
     expect(booleanPointInPolygon(point(a), hotter as any)).toBe(false);
+  });
+});
+
+describe('thermometer handoff (midpoint + angle)', () => {
+  /**
+   * The whole feature's correctness rests on one claim: a start/end pair
+   * reconstructed from only `thermometerMidAngle`'s output produces the
+   * *exact* region the real points would. A full 0-360° bearing was chosen
+   * deliberately over a 0-180° "line angle" — folding it loses which of the
+   * two perpendicular directions is real, and that's exactly the bit that
+   * would silently invert the region on the reconstructed side whenever the
+   * real bearing happened to land past 180°. This sweeps travel in every
+   * compass direction, so a regression to the folded version would show up
+   * here as roughly half the cases flipping, not all of them.
+   */
+  const origin: LngLat = [-122.4194, 37.7793];
+  const directions = [0, 45, 90, 135, 180, 225, 270, 315, 37, 163, 291];
+
+  it('reproduces the identical hotter/colder split for every travel direction', () => {
+    for (const bearingDeg of directions) {
+      const rad = (bearingDeg * Math.PI) / 180;
+      // ~1.2 km travel in this compass direction, in degrees (rough but far
+      // larger than any floating-point slop this test cares about).
+      const dLat = (1200 / 111_320) * Math.cos(rad);
+      const dLon = (1200 / (111_320 * Math.cos((origin[1] * Math.PI) / 180))) * Math.sin(rad);
+      const start = origin;
+      const end: LngLat = [origin[0] + dLon, origin[1] + dLat];
+
+      const handoff = thermometerMidAngle(start, end);
+      expect(handoff, `direction ${bearingDeg}`).toBeTruthy();
+      const { start: rStart, end: rEnd } = pointsFromMidAngle(handoff!.midpoint, handoff!.angleDeg);
+
+      for (const warmer of [true, false]) {
+        const real = thermometerRegion(start, end, warmer, boundary)!;
+        const reconstructed = thermometerRegion(rStart, rEnd, warmer, boundary)!;
+
+        // Sample a ring of points around the midpoint at several bearings and
+        // confirm both regions agree at every one — not just the travel axis.
+        const [mx, my] = handoff!.midpoint;
+        for (let sampleBearing = 0; sampleBearing < 360; sampleBearing += 30) {
+          const srad = (sampleBearing * Math.PI) / 180;
+          const p = point([
+            mx + (400 / (111_320 * Math.cos((my * Math.PI) / 180))) * Math.sin(srad),
+            my + (400 / 111_320) * Math.cos(srad),
+          ]);
+          const inReal = booleanPointInPolygon(p, real as any);
+          const inReconstructed = booleanPointInPolygon(p, reconstructed as any);
+          expect(inReconstructed, `direction ${bearingDeg}, warmer ${warmer}, sample bearing ${sampleBearing}`).toBe(inReal);
+        }
+      }
+    }
   });
 });
 

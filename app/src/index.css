@@ -213,6 +213,8 @@ select { font: inherit; padding: 10px; border: 1px solid var(--line); border-rad
 .drift.bad { color: var(--no); }
 
 .thermo { border-top: 1px solid var(--line); padding-top: 8px; }
+.thermo-handoff { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.thermo-handoff .tag { font-size: 12px; padding: 3px 8px; }
 
 .fatal { padding: 32px; }
 code { background: var(--line); padding: 2px 5px; border-radius: 4px; font-size: 13px; }

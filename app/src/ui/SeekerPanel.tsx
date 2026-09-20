@@ -6,6 +6,7 @@ import { previewSplit, type evaluate } from '../engine/candidates';
 import { nearestFeature } from '../engine/regions';
 import type { Answer, AskEntry, Category, LngLat, Question } from '../engine/types';
 import { metres } from '../engine/project';
+import { thermometerMidAngle } from '../engine/thermoHandoff';
 import { formatDistance } from './units';
 import { QuestionRow } from './QuestionRow';
 import { AskLog } from './AskLog';
@@ -209,6 +210,13 @@ function ThermometerBar(props: {
   // Projected, not a degree-scaling guess. The old inline hypot used fixed
   // metres-per-degree factors and disagreed with every other distance on screen.
   const dist = pins.start && pins.end ? metres(pins.start, pins.end) : null;
+  const handoff = pins.start && pins.end ? thermometerMidAngle(pins.start, pins.end) : null;
+
+  const copyHandoff = () => {
+    if (!handoff) return;
+    const text = `${handoff.midpoint[1].toFixed(6)}, ${handoff.midpoint[0].toFixed(6)} @ ${handoff.angleDeg.toFixed(1)}°`;
+    navigator.clipboard?.writeText(text).catch(() => {});
+  };
 
   return (
     <div className="thermo pad-x">
@@ -228,6 +236,21 @@ function ThermometerBar(props: {
             ? 'Travelled far enough? Drop the end pin and send it.'
             : `Travelled ${formatDistance(dist!, units)} as the crow flies. Now log hotter or colder.`}
       </p>
+      {handoff && (
+        <div className="thermo-handoff">
+          <p className="muted small">
+            For an exact dividing line, send the hider these two numbers instead of pins — they
+            enter them under Thermometer → Exact numbers:
+          </p>
+          <div className="row">
+            <span className="tag">
+              Midpoint {handoff.midpoint[1].toFixed(6)}, {handoff.midpoint[0].toFixed(6)}
+            </span>
+            <span className="tag">Angle {handoff.angleDeg.toFixed(1)}°</span>
+            <button className="link" onClick={copyHandoff}>Copy</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
