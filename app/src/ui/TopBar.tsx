@@ -8,8 +8,8 @@ export function TopBar(props: {
   loc: LocationState;
   alive: number;
   total: number;
-  tab: 'play' | 'layers' | 'results' | 'game' | 'community' | 'help';
-  onTab: (t: 'play' | 'layers' | 'results' | 'game' | 'community' | 'help') => void;
+  tab: 'play' | 'layers' | 'results' | 'game' | 'help';
+  onTab: (t: 'play' | 'layers' | 'results' | 'game' | 'help') => void;
   /** The code of the game room this device is in, if any. */
   gameCode: string | null;
 }) {
@@ -32,7 +32,7 @@ export function TopBar(props: {
 
         <div className="seg">
           <button className={tab === 'play' ? 'on' : ''} onClick={() => onTab('play')}>Play</button>
-          <button className={tab === 'layers' || tab === 'community' ? 'on' : ''} onClick={() => onTab('layers')}>Map</button>
+          <button className={tab === 'layers' ? 'on' : ''} onClick={() => onTab('layers')}>Map</button>
           <button className={tab === 'results' ? 'on' : ''} onClick={() => onTab('results')}>Results</button>
           <button className={tab === 'help' ? 'on' : ''} onClick={() => onTab('help')} title="Diagnostics">?</button>
         </div>
@@ -85,8 +85,8 @@ function formatDuration(ms: number): string {
  */
 function LocationLine(props: {
   loc: LocationState;
-  tab: 'play' | 'layers' | 'results' | 'game' | 'community' | 'help';
-  onTab: (t: 'play' | 'layers' | 'results' | 'game' | 'community' | 'help') => void;
+  tab: 'play' | 'layers' | 'results' | 'game' | 'help';
+  onTab: (t: 'play' | 'layers' | 'results' | 'game' | 'help') => void;
   gameCode: string | null;
 }) {
   const { loc } = props;

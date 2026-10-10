@@ -44,12 +44,12 @@ describe('map file', () => {
     expect(readMapText('not json', 'x', 'sf').ok).toBe(false);
   });
 
-  it('names a newer format and a city pack for what they are, rather than "invalid"', () => {
+  it('names a newer format for what it is, rather than "invalid"', () => {
     const doc = JSON.parse(serializeMap(shipped));
     const newer = parseMapFile({ ...doc, formatVersion: 2 });
     expect(!newer.ok && /newer version/.test(newer.error)).toBe(true);
-    const pack = parseMapFile({ ...doc, kind: 'pack' });
-    expect(!pack.ok && /city pack/.test(pack.error)).toBe(true);
+    const odd = parseMapFile({ ...doc, kind: 'hexgrid' });
+    expect(!odd.ok && /kind/.test(odd.error)).toBe(true);
   });
 
   it('gives duplicate names distinct ids', () => {

@@ -16,7 +16,8 @@ export function LayerPanel(props: {
   data: GameData;
   /** The community map being played on, or null for the built-in board. */
   boardName: string | null;
-  onCommunity: () => void;
+  /** Return to the built-in board; null when already on it, or mid-round. */
+  onBuiltIn: (() => void) | null;
 }) {
   const { data } = props;
   const visible = useGame((s) => s.visibleLayers);
@@ -32,8 +33,12 @@ export function LayerPanel(props: {
           {props.boardName ?? 'Built-in San Francisco board'}
           <span className="muted small"> · {data.stations.length} stations</span>
         </span>
-        <button onClick={props.onCommunity}>Community maps</button>
+        <a className="buttonlink" href="#/maps">Map studio</a>
       </div>
+      <p className="muted small">
+        Browse community maps, or build your own — for San Francisco or any other city — in the map studio.
+        {props.onBuiltIn && <> <button className="link" onClick={props.onBuiltIn}>Go back to the built-in board</button></>}
+      </p>
 
       <h3>Map layers</h3>
       <p className="muted small">

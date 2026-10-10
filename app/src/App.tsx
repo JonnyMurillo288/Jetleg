@@ -25,20 +25,18 @@ import { loadGame, type LocalGame } from './live/room';
 import { useLiveLocations } from './live/useLiveLocations';
 import { buildPeersFc, type SharePosition } from './live/share';
 import { supabase } from './sync/client';
-import { CommunityPanel } from './ui/CommunityPanel';
-import { editorTap, type EditorState } from './ui/MapEditor';
 import { applyMap, checkMap } from './community/board';
+import { enterBoard } from './engine/reset';
 import { loadActiveMap, saveActiveMap, stampOf, type ActiveMap } from './community/active';
 
 export default function App() {
   // The board as shipped. `data`, below, is what is actually played on: this,
-  // or this with a community map's stations swapped in.
+  // or a community map — the same board with other stations, or a different
+  // city altogether. Maps are made and chosen in the studio (#/maps).
   const [base, setBase] = useState<GameData | null>(null);
   const [activeMap, setActiveMap] = useState<ActiveMap | null>(null);
-  /** An open map editor. Its draft is the board for as long as it is open. */
-  const [editor, setEditor] = useState<EditorState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'play' | 'layers' | 'results' | 'game' | 'community' | 'help'>('play');
+  const [tab, setTab] = useState<'play' | 'layers' | 'results' | 'game' | 'help'>('play');
   const [pins, setPins] = useState<{ start?: LngLat; end?: LngLat }>({});
 
   const role = useGame((s) => s.role);
@@ -62,38 +60,26 @@ export default function App() {
   const planOnMap = useGame((s) => s.planOnMap);
   const round = useActiveRound();
   const setBoard = useGame((s) => s.setBoard);
-  const updateSettings = useGame((s) => s.updateSettings);
   const roundActive = !!round && !round.endedAt;
 
-  /**
-   * Only the station list decides the board, so only it is a dependency:
-   * typing a draft's name must not rebuild 192 zones per keystroke.
-   */
-  const boardStations = (editor?.draft ?? activeMap?.map)?.stations;
   const data = useMemo(() => {
     if (!base) return null;
-    const map = editor?.draft ?? activeMap?.map;
-    return map ? applyMap(base, map) : base;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [base, boardStations]);
+    const board = activeMap ? applyMap(base, activeMap.map) : base;
+    // Here, and not in an effect: everything below this line in the same
+    // render evaluates against `board`, and must do so in its projection
+    // and with none of the last board's cached regions.
+    enterBoard(board.bbox);
+    return board;
+  }, [base, activeMap]);
 
   // Rounds are stamped with the board they start on (store/game.ts).
   useEffect(() => { setBoard(stampOf(activeMap)); }, [activeMap, setBoard]);
 
-  /** Choose a board. Returns why not, when it cannot be chosen. */
-  const activate = async (next: ActiveMap | null): Promise<string | null> => {
-    if (!base) return 'The board is still loading.';
-    if (roundActive) return 'End your round before changing boards.';
-    if (next) {
-      const blocker = checkMap(next.map, base.boundary).find((p) => p.blocking);
-      if (blocker) return blocker.text;
-    }
-    await saveActiveMap(next);
-    setActiveMap(next);
-    // A map's house rules are applied once, when it is chosen; the player
-    // can still change them on the Map tab afterwards.
-    if (next) updateSettings(next.map.rules);
-    return null;
+  /** Back to the board the app ships with. Maps are chosen in the studio. */
+  const useBuiltInBoard = async () => {
+    if (roundActive) return;
+    await saveActiveMap(null);
+    setActiveMap(null);
   };
 
   // Manual mode stops the watch outright rather than ignoring it.
@@ -299,13 +285,6 @@ export default function App() {
     [data, round?.hiderStationId],
   );
 
-  // The editor owns the panel while it is open, whichever tab was showing.
-  const shownTab = editor ? 'community' : tab;
-  const editorSelected = editor?.selectedId ? editor.draft.stations.find((s) => s.id === editor.selectedId) : undefined;
-  const editorPoint: LngLat | null = editor
-    ? editor.pending ?? (editorSelected ? [editorSelected.lon, editorSelected.lat] : null)
-    : null;
-
   if (loadError) {
     return (
       <div className="fatal">
@@ -326,8 +305,8 @@ export default function App() {
         loc={loc}
         alive={evaluated.alive.length}
         total={data.stations.length}
-        tab={shownTab}
-        onTab={(t) => { if (!editor) setTab(t); }}
+        tab={tab}
+        onTab={setTab}
         gameCode={game?.joinCode ?? null}
       />
 
@@ -339,11 +318,8 @@ export default function App() {
         visibleLayers={visibleLayers}
         outOfPlay={outOfPlay}
         mapLayers={mapLayers}
-        // While a map is being edited the hollow ring marks the spot being
-        // added, or the station selected — the player's own dot would only
-        // be in the way.
-        fix={editor || manual.enabled ? null : loc.fix}
-        manualPoint={editor ? editorPoint : manual.enabled ? manual.coords ?? null : null}
+        fix={manual.enabled ? null : loc.fix}
+        manualPoint={manual.enabled ? manual.coords ?? null : null}
         pins={
           role === 'hider'
             ? { seekers: round?.seekerPin, start: hiderThermo.start, end: hiderThermo.end }
@@ -356,7 +332,6 @@ export default function App() {
         // Armed placement wins over claiming a station — otherwise the station
         // hit targets swallow the tap and the pin can never be placed.
         onStationClick={(id, ll) => {
-          if (editor) { setEditor(editorTap(editor, ll, id)); return; }
           // An armed measuring tool owns every tap, including one that lands on
           // a station — otherwise a circle can never be centred on one.
           if (measure.tool !== 'off') { measureTap(ll); return; }
@@ -371,14 +346,13 @@ export default function App() {
         // is on, where every placement goes through tap-and-hold plus the
         // panel toggle, so a stray tap cannot silently move a point.
         onMapClick={(ll) => {
-          if (editor) { setEditor(editorTap(editor, ll)); return; }
           if (measure.tool !== 'off') { measureTap(ll); return; }
           if (role !== 'hider' || !round || round.endedAt) return;
           if (hiderThermo.arm !== 'none') { placeHiderThermo(ll); return; }
           if (armSeekerPin || !manual.enabled) setSeekerPin(ll);
         }}
         onLongPress={(ll) => {
-          if (editor || !manual.enabled) return;
+          if (!manual.enabled) return;
           if (role === 'hider' && hiderPlaceTarget === 'seekers') {
             if (round && !round.endedAt) setSeekerPin(ll);
           } else {
@@ -391,7 +365,7 @@ export default function App() {
         data={data}
         alive={evaluated.alive}
         total={data.stations.length}
-        canMeasure={roundActive && !editor}
+        canMeasure={roundActive}
       />
 
       <div className="sheet">
@@ -406,20 +380,14 @@ export default function App() {
           </span>
         </button>
 
-        {shownTab === 'community' ? (
-          <CommunityPanel
-            base={base!}
-            stations={data.stations}
-            active={activeMap}
-            onActivate={activate}
-            editor={editor}
-            setEditor={setEditor}
-            roundActive={roundActive}
-          />
-        ) : tab === 'help' ? (
+        {tab === 'help' ? (
           <Diagnostics />
         ) : tab === 'layers' ? (
-          <LayerPanel data={data} boardName={activeMap?.map.name ?? null} onCommunity={() => setTab('community')} />
+          <LayerPanel
+            data={data}
+            boardName={activeMap?.map.name ?? null}
+            onBuiltIn={activeMap && !roundActive ? useBuiltInBoard : null}
+          />
         ) : tab === 'results' ? (
           <ResultsPanel data={data} />
         ) : tab === 'game' ? (

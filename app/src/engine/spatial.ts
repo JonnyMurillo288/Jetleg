@@ -30,6 +30,15 @@ export type LayerIndex = {
 
 const cache = new Map<string, LayerIndex>();
 
+/**
+ * Indexes are keyed by layer key, which was unique while there was one board.
+ * A different board's "parks" is a different layer under the same key, so
+ * loading a board drops them all (engine/reset.ts).
+ */
+export function resetLayerIndexes(): void {
+  cache.clear();
+}
+
 const idOf = (f: any, i: number): string => (f.properties?.id ?? f.properties?.name ?? String(i)) as string;
 const nameOf = (f: any, i: number): string => (f.properties?.name ?? f.properties?.id ?? String(i)) as string;
 

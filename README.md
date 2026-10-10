@@ -10,8 +10,8 @@ phone, so a hider and a seeker running the app never see each other's data.
 
 > **On the `backend/game-history` branch** that is no longer the whole story:
 > it adds an optional Supabase backend — game rooms with live seeker
-> locations, community maps with likes and comments, email sign-in and
-> developer access. Playing alone on one phone still needs none of it. See
+> locations, a map studio for building and sharing boards for any city,
+> likes and comments, email sign-in and developer access. Playing alone on one phone still needs none of it. See
 > [NEXT_STEPS.md](NEXT_STEPS.md) for how to try it and what is left to do.
 
 ```

@@ -410,3 +410,15 @@ export function previewSplit(
 export function resetPreviewCaches(): void {
   nearestCache.clear();
 }
+
+/**
+ * Everything here that was computed for one board and would be wrong on
+ * another: regions are clipped to a boundary and built from a layer, zones
+ * and verdicts are projected in a UTM zone. Called by engine/reset.ts.
+ */
+export function resetCandidateCaches(): void {
+  zoneCache.clear();
+  verdictCache.clear();
+  regionCache.clear();
+  nearestCache.clear();
+}

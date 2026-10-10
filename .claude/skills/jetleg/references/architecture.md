@@ -357,38 +357,89 @@ every frame and request the hider's browser sends for its own coordinates.
 own small effect in `MapView`, not through `redraw` — a peer moves every few
 seconds, and `redraw` rebuilds every zone polygon.
 
-## Community maps (`app/src/community/`, `0006_community.sql`)
+## Community maps and the map studio (`app/src/community/`, `app/src/studio/`)
 
-People publish their own boards, play each other's, and discuss them.
+People publish their own boards, play each other's, and discuss them. All of
+it happens on a second page, the **map studio** at `#/maps` — `main.tsx`
+mounts either the game (`App`) or the studio (`StudioApp`), never both. The
+game keeps one link to it (Map tab) and otherwise only loads whichever map
+was chosen there. A hash route, not a path, so it works unchanged on static
+hosting, the LAN dev server and an installed PWA.
+
+The studio's map always shows a real board built by `applyMap` — the draft
+being edited, the map whose page is open, or the board in play — so a map
+looks there exactly as it will when played.
 
 ### What a map is
 
-A `*.jetleg-map.json` document: a station list plus house rules, for a city
-board the app already ships (`kind: 'stations'`). `format.ts` is the single
-validator — a file off disk, a row from the server and a draft about to be
-published all go through `parseMapFile`. `kind: 'pack'` (a whole city:
-boundary, POI layers) is reserved in the format and already a legal value of
-the database column, but refused by both the parser and `publish_map()`;
-adding it is a new branch in `format.ts`, a loader, and Storage for the
-payload — not a migration of existing maps.
+A `*.jetleg-map.json` document, in one of two kinds. `format.ts` is the single
+validator: a file off disk, a row from the server and a draft about to be
+published all go through `parseMapFile`.
 
-### Playing on one
+- **`kind: 'stations'`** — a station list plus house rules, for the shipped
+  San Francisco board.
+- **`kind: 'pack'`** — a whole board for any city: one boundary polygon,
+  stations, every layer in `data/layers.ts` it has features for, and the
+  Voronoi cells of each point layer. `customVoronoi` lists the layers whose
+  cells the author supplied by hand; every other layer's cells are rebuilt
+  from its points whenever the pack is finalized, so they cannot drift.
 
-`board.ts`'s `applyMap(base, map)` swaps the station set and rebuilds zones
-with the engine's own `zoneOf`; boundary, POI layers and their cells stay the
-base board's. `App.tsx` keeps `base` (as shipped) and derives `data` from it,
-keyed on the station array only. The chosen map is stored whole in IndexedDB
+`board.ts`'s `applyMap(base, map)` turns either into `GameData`. A station
+map is the base board with stations swapped; a pack keeps **nothing** of the
+base — a layer it does not carry is a category not in play. Zones always come
+from the engine's own `zoneOf`. The chosen map is stored whole in IndexedDB
 (`active.ts`) with its exact version id, so it plays offline and an author's
-later version never changes a board mid-game. A station outside the boundary
-is blocking: answers are clipped to the boundary, so such a zone could never
-be ruled in or out.
+later version never changes a board mid-game.
 
-**The engine's caches had assumed one fixed board** and were wrong the moment
-it could change: zones keyed by station id, verdicts keyed by station *count*,
-nearest-POI results filled once from whichever stations asked first. They are
-now keyed by id-and-position, by a hash of the whole set, and filled per
-station. `community.test.ts` pins this with a map of the same size and ids
-with one station moved — it fails on the old keys.
+### The engine had assumed one board, in one place
+
+Three assumptions broke, and each would have been silent:
+
+- **The projection was a constant, UTM 10N.** UTM is only accurate near its
+  own central meridian; San Francisco's zone applied to New York is off by
+  more than 5%. `project.ts` now takes its zone from the board
+  (`setProjectionCenter`), and San Francisco's centre still gives 10N.
+- **Caches were keyed for one board**: zones by station id, verdicts by
+  station *count*, layer indexes by layer *name*, answer regions by the
+  question alone. `engine/reset.ts`'s `enterBoard(bbox)` re-centres the
+  projection and drops all of them. Both pages call it inside the memo that
+  builds their board, so nothing can be evaluated against a board the engine
+  has not entered. **Any new cache in the engine must be cleared there.**
+- **The map view and its boundary were set once.** `MapView` now refits to
+  `data.bbox` when it changes and redraws the boundary source — otherwise a
+  new city loads correctly under a camera still looking at San Francisco.
+
+`pack.test.ts` pins the claim that matters: San Francisco assembled as a pack
+eliminates exactly the zones the shipped board does, for matching, measuring,
+radar and thermometer; and a Sydney board plays correctly with nothing of San
+Francisco in it.
+
+### The pipeline, in the browser
+
+The studio's tabs are the pipeline's steps, as functions that run on any
+boundary. `pack.ts` decides, `osm.ts` fetches, `studio/Editor.tsx` draws.
+
+| Pipeline | Studio | Where |
+|---|---|---|
+| 01 boundary | find a place (Nominatim), draw, or import; keep the largest landmass; simplify | `largestLandmass`, `simplifyBoundary` |
+| 02 stations | fetch transit stops (same Overpass query), fold same-named stops within 150 m; tap to add/remove; import | `parseStations` — the short form, no routes |
+| 04 pois | the same twelve selectors and exclusions, as **one** combined request | `POI_DEFS`, `fetchAllPois` |
+| 05 linear | transit lines; coastline from OSM or from the boundary's own edge | `parseTransitLines`, `coastlineFromBoundary` |
+| 06 voronoi | cells built in the board's UTM zone, cut to the boundary; or hand-made cells imported | `engine/voronoi.ts`, `finalizePack` |
+| overrides.json | tap a place and remove it | Places tab |
+| closing audit | "none — null", "only one — always yes", per layer | `auditPack` |
+
+Two things learned the usual way. Twelve Overpass requests in a row from a
+browser get rate-limited by the fifth; one union query, sorted by tag
+afterwards, does not. And cutting every cell against a detailed boundary took
+22 s for San Francisco: `voronoiCells` now tests, exactly and in the plane,
+whether the boundary's outline touches a cell at all, and skips the polygon
+intersection for the majority that it does not. The cells are checked against
+nearest-feature truth on a sampled grid (`voronoi.test.ts`), in two
+hemispheres.
+
+Districts (03) and the county line are city-specific sources and have no
+studio tool; a pack has no administrative divisions.
 
 A round is stamped with its board (`Round.board`). The Results tab refuses to
 show zone counts for a round played on a different board than the one loaded,
@@ -405,7 +456,11 @@ rather than scoring it against the wrong stations.
 
 There is no merge and no pull request. Versions have no insert/update/delete
 policy at all; only `publish_map()` and `publish_map_version()` write them,
-after `validate_map_content_()`.
+after `validate_map_content_()`. A new version cannot change a map's kind or
+city. The three references a map holds to other maps and versions are
+`deferrable initially deferred` (0009): deleting an account cascades through
+its maps, likes and comments in one statement, and a mid-statement check saw
+a branch still pointing at a version that had just gone.
 
 ### Who may write
 

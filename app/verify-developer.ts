@@ -135,12 +135,10 @@ async function codeFor(email: string): Promise<string> {
   await p.waitForFunction(() => (window as any).__mapReady === true, null, { timeout: 45000 });
   check('a reload goes straight back into the round, no paywall', await p.waitForSelector('.qrow', { timeout: 15000 }).then(() => true, () => false));
 
-  // A round in progress pins the board.
-  await click('^Map$', '.topbar button');
-  await click('Community maps');
-  await p.waitForSelector('.boardnow');
-  check('the board cannot be changed mid-round', await p.evaluate(() =>
-    [...document.querySelectorAll<HTMLButtonElement>('.community button')].filter((b) => /Make a map|Open a map file/.test(b.textContent || '')).every((b) => b.disabled)));
+  // A round in progress pins the board: the studio will not swap it out from under the round.
+  await p.evaluate(() => { location.hash = '#/maps'; });
+  await p.waitForSelector('.boardnow', { timeout: 20000 });
+  check('the studio says the board cannot be changed mid-round', /End your round to change boards/.test((await p.textContent('.boardnow')) ?? ''));
 
   check('no page errors', errors.length === 0, errors);
   await browser.close();

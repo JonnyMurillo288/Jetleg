@@ -1,9 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { GameData } from '../data/load';
-import type { Station } from '../engine/types';
 import { supabase } from '../sync/client';
-import { useGame } from '../store/game';
-import { useAccount, type Account } from '../community/account';
+import type { Account } from '../community/account';
 import type { ActiveMap } from '../community/active';
 import {
   deleteComment,
@@ -20,19 +17,25 @@ import {
   type VersionSummary,
 } from '../community/api';
 import { CITY } from '../community/board';
-import { describeDiff, diffStations, mapFromBoard, readMapText, type MapFile } from '../community/format';
+import { describeDiff, diffStations, readMapText, type MapFile } from '../community/format';
+import { downloadMap, type EditorTarget } from '../studio/Editor';
 import { AccountBox } from './AccountBox';
-import { MapEditor, downloadMap, type EditorState, type EditorTarget } from './MapEditor';
+
+/** What a new map starts from. */
+export type NewMapKind = 'stations' | 'city' | 'sf-pack';
 
 type Props = {
-  base: GameData;
-  /** Stations of the board on screen — the starting point for a new map. */
-  stations: Station[];
+  account: Account;
   active: ActiveMap | null;
-  /** Choose a board; null returns to the built-in one. Resolves to an error message, if any. */
-  onActivate: (a: ActiveMap | null) => Promise<string | null>;
-  editor: EditorState | null;
-  setEditor: (e: EditorState | null) => void;
+  /** Stations on the board in play, for the "playing on" line. */
+  activeStations: number;
+  /** Choose a board and go and play on it. Resolves to an error message, if any. */
+  onPlay: (a: ActiveMap) => Promise<string | null>;
+  onBuiltIn: () => void;
+  onNew: (kind: NewMapKind) => void;
+  onEdit: (draft: MapFile, target: EditorTarget) => void;
+  /** Show a map on the studio's map while its page is open; null puts the default back. */
+  onPreview: (map: MapFile | null) => void;
   /** A round in progress pins the board: changing it mid-round would re-score it. */
   roundActive: boolean;
 };
@@ -41,57 +44,32 @@ const when = (iso: string) => new Date(iso).toLocaleDateString();
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /**
- * Community maps: browse what others have published, play on one, branch it
- * into your own, and say what you think of it.
+ * Community maps: browse what others have published, look at one on the
+ * map, play on it, branch it into your own, and say what you think of it.
  */
 export function CommunityPanel(props: Props) {
-  const account = useAccount();
   const [openId, setOpenId] = useState<string | null>(null);
-  const { editor, setEditor } = props;
-
-  const startEditor = (draft: MapFile, target: EditorTarget) =>
-    setEditor({ draft, original: draft.stations, target, pending: null, selectedId: null });
-
-  if (editor) {
-    return (
-      <MapEditor
-        editor={editor}
-        onChange={setEditor}
-        onClose={() => setEditor(null)}
-        base={props.base}
-        account={account}
-        onPlay={async (map) => {
-          const err = await props.onActivate({ mapId: null, versionId: null, map });
-          if (err) alert(err);
-          else setEditor(null);
-        }}
-        onPublished={(mapId) => { setEditor(null); setOpenId(mapId); }}
-      />
-    );
-  }
-
   if (openId) {
     return (
       <MapPage
         key={openId}
         id={openId}
-        account={account}
+        account={props.account}
         active={props.active}
         roundActive={props.roundActive}
-        onActivate={props.onActivate}
+        onPlay={props.onPlay}
+        onPreview={props.onPreview}
         onOpen={setOpenId}
-        onBack={() => setOpenId(null)}
-        onEdit={startEditor}
+        onBack={() => { props.onPreview(null); setOpenId(null); }}
+        onEdit={props.onEdit}
       />
     );
   }
-
-  return <Browse {...props} account={account} onOpen={setOpenId} onEdit={startEditor} />;
+  return <Browse {...props} onOpen={setOpenId} />;
 }
 
-function Browse(props: Props & { account: Account; onOpen: (id: string) => void; onEdit: (draft: MapFile, target: EditorTarget) => void }) {
+function Browse(props: Props & { onOpen: (id: string) => void }) {
   const { active, roundActive } = props;
-  const settings = useGame((s) => s.settings);
   const [sort, setSort] = useState<Sort>('top');
   const [maps, setMaps] = useState<MapSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -101,19 +79,13 @@ function Browse(props: Props & { account: Account; onOpen: (id: string) => void;
     let cancelled = false;
     setMaps(null);
     setError(null);
-    listMaps(CITY, sort).then((res) => {
+    listMaps(sort).then((res) => {
       if (cancelled) return;
       if (res.ok) setMaps(res.value);
       else setError(res.error);
     });
     return () => { cancelled = true; };
   }, [sort]);
-
-  const fromBoard = () =>
-    props.onEdit(
-      mapFromBoard(props.stations, { gameSize: settings.gameSize, supervisorDistrictsAsAdmin4: settings.supervisorDistrictsAsAdmin4 }, '', CITY),
-      { type: 'new' },
-    );
 
   const openFile = async (f: File) => {
     const parsed = readMapText(await f.text(), f.name.replace(/(\.jetleg-map)?\.[^.]+$/, ''), CITY);
@@ -125,31 +97,38 @@ function Browse(props: Props & { account: Account; onOpen: (id: string) => void;
     <div className="pad community">
       <h2>Community maps</h2>
       <p className="muted">
-        A map is a set of hiding stations and house rules. Play someone else’s, branch it into your
-        own, or publish one from scratch.
+        Play on a map someone else made, branch it into your own, or build one from scratch — a new
+        set of stations for San Francisco, or a whole other city.
       </p>
 
       <div className="boardnow">
         <span className="muted small">Playing on</span>
         <strong>{active ? active.map.name : 'Built-in San Francisco board'}</strong>
         <span className="muted small">
-          {plural(props.stations.length, 'station')}
-          {active && !active.mapId && ' · from a file, not published'}
+          {plural(props.activeStations, 'station')}
+          {active && !active.mapId && ' · not published'}
         </span>
         {active && (
-          <button className="link" disabled={roundActive} onClick={() => props.onActivate(null)}>
+          <button className="link" disabled={roundActive} onClick={props.onBuiltIn}>
             Back to the built-in board
           </button>
         )}
         {roundActive && <span className="muted small">End your round to change boards.</span>}
       </div>
 
+      <h3>Make a map</h3>
       <div className="row">
-        <button className="primary" disabled={roundActive} onClick={fromBoard}>Make a map</button>
-        <button disabled={roundActive} onClick={() => fileRef.current?.click()}>Open a map file</button>
+        <button className="primary" onClick={() => props.onNew('city')}>New city</button>
+        <button onClick={() => props.onNew('stations')}>New stations for San Francisco</button>
+        <button onClick={() => props.onNew('sf-pack')}>Open the San Francisco board</button>
+        <button onClick={() => fileRef.current?.click()}>Open a map file</button>
         <input ref={fileRef} type="file" accept=".json,.geojson,application/json,application/geo+json" hidden
           onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) openFile(f); }} />
       </div>
+      <p className="muted small">
+        “New city” gives you the tools the San Francisco board was built with: set a boundary, pull
+        stations and places from OpenStreetMap or your own files, and build the Voronoi cells.
+      </p>
 
       {!supabase ? (
         <p className="muted small">
@@ -175,7 +154,7 @@ function Browse(props: Props & { account: Account; onOpen: (id: string) => void;
                   <b>{m.name}</b>
                   {active?.mapId === m.id && <span className="tag good">playing</span>}
                   <span className="muted small maprow">
-                    by {m.authorName} · {plural(m.stationCount, 'station')}
+                    by {m.authorName} · {m.kind === 'pack' ? `${m.city} · full city` : 'San Francisco'} · {plural(m.stationCount, 'station')}
                     {m.parentMapName && ' · a branch'}
                   </span>
                   <span className="muted small maprow">
@@ -197,7 +176,8 @@ function MapPage(props: {
   account: Account;
   active: ActiveMap | null;
   roundActive: boolean;
-  onActivate: Props['onActivate'];
+  onPlay: Props['onPlay'];
+  onPreview: Props['onPreview'];
   onOpen: (id: string) => void;
   onBack: () => void;
   onEdit: (draft: MapFile, target: EditorTarget) => void;
@@ -217,6 +197,17 @@ function MapPage(props: {
   // controls depend on who is asking.
   const who = account.state === 'signedIn' ? account.userId : account.state;
   useEffect(() => { load(); }, [load, who]);
+
+  // Put the map itself on the studio's map — a page of text about a board
+  // is a poor way to judge it.
+  const headVersionId = detail?.map.headVersionId ?? null;
+  const { onPreview } = props;
+  useEffect(() => {
+    if (!headVersionId) return;
+    let cancelled = false;
+    getVersionContent(headVersionId).then((res) => { if (!cancelled && res.ok) onPreview(res.value); });
+    return () => { cancelled = true; };
+  }, [headVersionId, onPreview]);
 
   if (error && !detail) {
     return (
@@ -246,8 +237,8 @@ function MapPage(props: {
 
   const play = (v: { id: string } | null) =>
     withContent(v?.id ?? map.headVersionId, async (m) => {
-      const err = await props.onActivate({ mapId: map.id, versionId: v?.id ?? map.headVersionId, map: m });
-      setNote(err ?? `Now playing on “${m.name}”.`);
+      const err = await props.onPlay({ mapId: map.id, versionId: v?.id ?? map.headVersionId, map: m });
+      if (err) setNote(err);
     });
 
   const branch = (v: VersionSummary | null) =>
@@ -276,7 +267,7 @@ function MapPage(props: {
       <button className="link" onClick={props.onBack}>← All maps</button>
       <h2>{map.name}</h2>
       <p className="muted small">
-        by {map.authorName} · {plural(map.stationCount, 'station')} · updated {when(map.updatedAt)}
+        by {map.authorName} · {map.kind === 'pack' ? `${map.city} · full city` : 'San Francisco stations'} · {plural(map.stationCount, 'station')} · updated {when(map.updatedAt)}
         {playing && <span className="tag good">playing</span>}
       </p>
       {map.parentMapName && (
@@ -303,10 +294,10 @@ function MapPage(props: {
       </button>
       {roundActive && <p className="muted small">End your round to change boards.</p>}
       <div className="row">
-        <button disabled={busy || roundActive} onClick={() => branch(null)}>Branch it</button>
+        <button disabled={busy} onClick={() => branch(null)}>Branch it</button>
         <button disabled={busy} onClick={() => withContent(map.headVersionId, downloadMap)}>Download file</button>
         {mine && (
-          <button disabled={busy || roundActive} onClick={() => withContent(map.headVersionId, (m) => props.onEdit(m, { type: 'version', mapId: map.id }))}>
+          <button disabled={busy} onClick={() => withContent(map.headVersionId, (m) => props.onEdit(m, { type: 'version', mapId: map.id }))}>
             New version
           </button>
         )}
@@ -343,7 +334,7 @@ function MapPage(props: {
             {v.id !== map.headVersionId && (
               <>
                 <button className="link" disabled={busy || roundActive} onClick={() => play(v)}>Play</button>
-                <button className="link" disabled={busy || roundActive} onClick={() => branch(v)}>Branch</button>
+                <button className="link" disabled={busy} onClick={() => branch(v)}>Branch</button>
               </>
             )}
           </li>

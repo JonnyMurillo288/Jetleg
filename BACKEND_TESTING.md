@@ -152,13 +152,19 @@ map within a few seconds; the hider never appears on the seeker's.
 ## 3c. Community maps and developer access
 
 ```bash
-npx supabase migration up        # 0006_community.sql, 0007_developers.sql
+npx supabase migration up        # 0006 community, 0007 developers, 0008 city maps, 0009 account deletion
 cd app
 npm run verify:community         # the database's rules, as four kinds of caller
 npm run build && npx vite preview --port 4310 &
 npm run verify:community:ui      # two browsers: draw, publish, play, like, comment, branch
 npm run verify:developer         # developer list, then paywall -> sign in -> play
 ```
+
+Community maps live on their own page, the map studio, at `/#/maps`
+(`http://127.0.0.1:4310/#/maps` on the preview). `verify:community:ui`
+answers the studio's OpenStreetMap requests from fixtures, so it never
+touches the public services; to exercise those for real, build a city by
+hand as `NEXT_STEPS.md` describes.
 
 Sign-in is an emailed six-digit code. Locally nothing is really sent: every
 email lands in the mail catcher at **http://127.0.0.1:54324** — open it to
@@ -167,7 +173,7 @@ read a code. The harnesses read it from the same place.
 To have something to look at, and to get past the paywall yourself:
 
 ```bash
-npm run seed:community                          # 4 dummy players, 7 maps, likes, threads
+npm run seed:community                          # 4 dummy players, 8 maps (one a full city), likes, threads
 npx tsx seed-community.ts --reset               # remove exactly that again
 npx tsx grant-developer.ts you@example.com      # free play for that email, once signed in
 ```

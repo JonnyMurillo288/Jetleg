@@ -94,9 +94,9 @@ const toSummary = (r: MapRow): MapSummary => ({
   updatedAt: r.updated_at,
 });
 
-export async function listMaps(city: string, sort: Sort): Promise<Result<MapSummary[]>> {
+export async function listMaps(sort: Sort): Promise<Result<MapSummary[]>> {
   if (!supabase) return fail(NOT_CONFIGURED);
-  let query = supabase.from('community_maps').select(MAP_COLUMNS).eq('city', city);
+  let query = supabase.from('community_maps').select(MAP_COLUMNS);
   query = sort === 'top'
     ? query.order('like_count', { ascending: false }).order('updated_at', { ascending: false })
     : query.order('updated_at', { ascending: false });

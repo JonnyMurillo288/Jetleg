@@ -16,7 +16,11 @@
 // mail catcher at http://127.0.0.1:54324.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { readFileSync } from 'node:fs';
-import { mapFromBoard, type MapFile } from './src/community/format';
+import type { FeatureCollection } from 'geojson';
+import { LAYER_DEFS, VORONOI_KEYS } from './src/data/layers';
+import type { GameData } from './src/data/load';
+import { mapFromBoard, parseMapFile, serializeMap, type MapFile } from './src/community/format';
+import { finalizePack, packFromBoard } from './src/community/pack';
 import type { Station } from './src/engine/types';
 
 const url = process.env.SUPABASE_URL || 'http://127.0.0.1:54321';
@@ -39,11 +43,14 @@ async function removeDummies(): Promise<number> {
     for (const u of data.users) {
       if (u.email && /^dummy-.+@jetleg\.test$/.test(u.email)) {
         // Their maps, comments and reactions cascade from the user row.
-        await admin.auth.admin.deleteUser(u.id);
+        const gone = await admin.auth.admin.deleteUser(u.id);
+        if (gone.error) throw new Error(`could not remove ${u.email}: ${gone.error.message}`);
         removed++;
       }
     }
-    if (data.users.length < 200) break;
+    // Until a page comes back empty: the server may cap the page size below
+    // what was asked for, so a short page does not mean the last one.
+    if (data.users.length === 0) break;
   }
   return removed;
 }
@@ -65,6 +72,43 @@ const cut = (name: string, description: string, keep: (s: Station) => boolean, r
   ...mapFromBoard(all.filter(keep), rules, name, 'sf'),
   description,
 });
+
+/** The shipped board read off disk, the way data/load.ts assembles it in the browser. */
+function shippedBoard(): GameData {
+  const read = (f: string) => JSON.parse(readFileSync(`public/data/${f}`, 'utf8'));
+  const tryRead = (f: string): FeatureCollection => { try { return read(f); } catch { return { type: 'FeatureCollection', features: [] }; } };
+  const layers: GameData['layers'] = {};
+  for (const d of LAYER_DEFS) layers[d.key] = { key: d.key, label: d.label, kind: d.kind, features: tryRead(d.file).features as any };
+  const voronoi: GameData['voronoi'] = {};
+  for (const k of VORONOI_KEYS) voronoi[k] = tryRead(`voronoi-${k}.geojson`);
+  return { boundary: read('boundary.geojson').features[0], bbox: read('bbox.json'), stations: all, zones: read('zones.geojson'), districts: read('districts.geojson'), layers, voronoi };
+}
+
+/**
+ * A full city map to open in the studio: the eastern half of San Francisco
+ * as a board of its own — its own boundary, only the places inside it, and
+ * Voronoi cells rebuilt for it. A real example of what "New city" produces,
+ * made without calling OpenStreetMap.
+ */
+function eastSidePack(): MapFile {
+  const board = shippedBoard();
+  const pack = packFromBoard(board, 'East of Divisadero', 'sf-east', { gameSize: 'medium' });
+  pack.description = 'A full city map, not just stations: the eastern half of San Francisco cut out as its own board, with its own boundary, places and Voronoi cells. Open it in the studio to see how one is put together.';
+  const cut = -122.4395;
+  const ring = pack.boundary.coordinates[0];
+  const east = ring.filter(([lon]) => lon >= cut);
+  const lats = ring.filter(([lon]) => Math.abs(lon - cut) < 0.004).map(([, lat]) => lat);
+  pack.boundary = { type: 'Polygon', coordinates: [[[cut, Math.min(...lats)], ...east, [cut, Math.max(...lats)], [cut, Math.min(...lats)]]] };
+  pack.stations = pack.stations.filter((st) => st.lon > cut + 0.001);
+  for (const [key, feats] of Object.entries(pack.layers)) {
+    pack.layers[key] = feats.filter((f) => f.geometry.type !== 'Point' || (f.geometry.coordinates[0] as number) > cut + 0.001);
+  }
+  pack.layers.railStations = [];   // re-derived from the stations that are left
+  pack.voronoi = {};
+  const parsed = parseMapFile(JSON.parse(serializeMap(finalizePack(pack).pack)));
+  if (!parsed.ok) throw new Error(`east-side pack: ${parsed.error}`);
+  return parsed.map;
+}
 
 async function publish(who: SupabaseClient, map: MapFile, message: string, parentVersion?: string): Promise<{ mapId: string; versionId: string }> {
   const { data, error } = await who.rpc('publish_map', { content: map, message, ...(parentVersion ? { parent_version: parentVersion } : {}) });
@@ -114,6 +158,11 @@ const rate = (who: SupabaseClient, mapId: string, value: 1 | -1) => who.rpc('rea
   const d = await publish(theo, south, 'First cut');
   const e = await publish(maya, full, 'Standard board, one house rule');
 
+  const h = await publish(theo, eastSidePack(), 'Cut from the full board');
+  await rate(maya, h.mapId, 1);
+  await rate(rosa, h.mapId, 1);
+  await say(maya, h.mapId, 'First full-city map here. The Voronoi cells look right along the new western edge.');
+
   // A second version: Maya pulls the waterfront back in.
   const downtown2 = cut(downtown.name, `${downtown.description}\n\nv2 adds the Mission Bay stops after feedback.`,
     (s) => s.lon > -122.4215 && s.lat > 37.765 || (s.lon > -122.40 && s.lat > 37.755), { gameSize: 'small' });
@@ -148,9 +197,9 @@ const rate = (who: SupabaseClient, mapId: string, value: 1 | -1) => who.rpc('rea
 
   console.log(`Seeded ${url}:`);
   console.log(`  4 players   ${PEOPLE.map(emailOf).join(', ')}`);
-  console.log('  7 maps      5 originals, 2 branches; “Downtown sprint” has 2 versions');
-  console.log('  12 reactions, 8 comments in 5 threads');
-  console.log('\nOpen the app > Map > Community maps. Remove it all again with: npx tsx seed-community.ts --reset');
+  console.log('  8 maps      5 station maps, 1 full city map (“East of Divisadero”), 2 branches; “Downtown sprint” has 2 versions');
+  console.log('  14 reactions, 9 comments in 6 threads');
+  console.log('\nOpen the map studio: the app > Map > Map studio, or /#/maps. Remove it all again with: npx tsx seed-community.ts --reset');
 })().catch((e) => {
   console.error('seed-community failed:', e.message ?? e);
   process.exit(1);

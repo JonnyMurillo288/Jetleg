@@ -2,7 +2,7 @@ import proj4 from 'proj4';
 import type { LngLat } from './types';
 
 /**
- * All geometry is computed in UTM zone 10N, never in lon/lat.
+ * All geometry is computed in the board's UTM zone, never in lon/lat.
  *
  * This matters more than it looks. A perpendicular bisector computed on raw
  * lon/lat is not perpendicular on the ground: at SF's latitude a degree of
@@ -11,19 +11,63 @@ import type { LngLat } from './types';
  * puts the thermometer line hundreds of metres away from the truth — enough to
  * eliminate the correct hiding zone.
  *
- * UTM 10N covers San Francisco with sub-metre distortion.
+ * The zone used to be a constant, 10N, because there was one board. A
+ * community city pack can be anywhere, and UTM is only accurate near its own
+ * central meridian — San Francisco's zone applied to New York is off by tens
+ * of percent. So the zone follows the board: `setProjectionCenter` is called
+ * with the board's centre whenever a board is loaded (engine/reset.ts). San
+ * Francisco's centre gives zone 10N, so the shipped board is unchanged.
  */
-const UTM10N = '+proj=utm +zone=10 +datum=WGS84 +units=m +no_defs';
 const WGS84 = 'EPSG:4326';
 
-/** lon/lat degrees -> UTM 10N metres */
-export function toUTM(ll: LngLat): [number, number] {
-  return proj4(WGS84, UTM10N, ll) as [number, number];
+/** The proj4 definition of the UTM zone containing a point. */
+export function utmDefinition(lon: number, lat: number): string {
+  const zone = Math.min(60, Math.max(1, Math.floor((lon + 180) / 6) + 1));
+  return `+proj=utm +zone=${zone}${lat < 0 ? ' +south' : ''} +datum=WGS84 +units=m +no_defs`;
 }
 
-/** UTM 10N metres -> lon/lat degrees */
+export type Projection = {
+  definition: string;
+  toUTM: (ll: LngLat) => [number, number];
+  toLngLat: (xy: [number, number]) => LngLat;
+};
+
+/** A projection for a place, independent of whichever board is loaded. */
+export function projectionAt(lon: number, lat: number): Projection {
+  const definition = utmDefinition(lon, lat);
+  const converter = proj4(WGS84, definition);
+  return {
+    definition,
+    toUTM: (ll) => converter.forward(ll) as [number, number],
+    toLngLat: (xy) => converter.inverse(xy) as LngLat,
+  };
+}
+
+// The shipped board, until a board says otherwise.
+let current = projectionAt(-122.44, 37.76);
+
+/**
+ * Point the engine at a board. Returns whether the zone changed — every
+ * cached projected coordinate is then stale, and is dropped here.
+ */
+export function setProjectionCenter(lon: number, lat: number): boolean {
+  const next = utmDefinition(lon, lat);
+  if (next === current.definition) return false;
+  current = projectionAt(lon, lat);
+  utmCache.clear();
+  return true;
+}
+
+export const currentProjection = (): Projection => current;
+
+/** lon/lat degrees -> the board's UTM metres */
+export function toUTM(ll: LngLat): [number, number] {
+  return current.toUTM(ll);
+}
+
+/** the board's UTM metres -> lon/lat degrees */
 export function toLngLat(xy: [number, number]): LngLat {
-  return proj4(UTM10N, WGS84, xy) as LngLat;
+  return current.toLngLat(xy);
 }
 
 export function toUTMRing(ring: LngLat[]): [number, number][] {

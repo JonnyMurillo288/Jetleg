@@ -14,6 +14,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { readFileSync } from 'node:fs';
 import { mapFromBoard, parseMapFile, serializeMap, type MapFile } from './src/community/format';
+import { finalizePack, newPack } from './src/community/pack';
 import type { Station } from './src/engine/types';
 
 const url = process.env.SUPABASE_URL || 'http://127.0.0.1:54321';
@@ -61,6 +62,23 @@ async function codeFor(email: string): Promise<string | null> {
 const stations = (JSON.parse(readFileSync('public/data/stations.json', 'utf8')) as { stations: Station[] }).stations;
 const board = (name: string, count: number): MapFile => mapFromBoard(stations.slice(0, count), { gameSize: 'small' }, name, 'sf');
 
+/** A small real pack: three stations and three libraries in a square of central Sydney, finalized the way the studio does it. */
+function sydneyPack(): MapFile {
+  const square = { type: 'Polygon' as const, coordinates: [[[151.14, -33.93], [151.27, -33.93], [151.27, -33.82], [151.14, -33.82], [151.14, -33.93]]] };
+  const draft = newPack(`Central Sydney ${run}`, 'sydney', square, { gameSize: 'small' });
+  draft.stations = [
+    { id: 'central', name: 'Central', lon: 151.2069, lat: -33.8832, modes: ['rail'], routes: [] },
+    { id: 'townhall', name: 'Town Hall', lon: 151.2069, lat: -33.8736, modes: ['rail'], routes: [] },
+    { id: 'bondijn', name: 'Bondi Junction', lon: 151.2475, lat: -33.8914, modes: ['rail', 'bus'], routes: [] },
+  ];
+  draft.layers.libraries = ([[151.2113, -33.8663, 'State Library'], [151.1793, -33.8847, 'Glebe Library'], [151.2437, -33.8935, 'Waverley Library']] as const)
+    .map(([lon, lat, name]) => ({ type: 'Feature', id: `lib-${name}`, properties: { id: `lib-${name}`, name }, geometry: { type: 'Point', coordinates: [lon, lat] } }));
+  const parsed = parseMapFile(JSON.parse(serializeMap(finalizePack(draft).pack)));
+  if (!parsed.ok) throw new Error(parsed.error);
+  return parsed.map;
+}
+const sydney = sydneyPack();
+
 (async () => {
   const alice = await member('Alice');
   const bob = await member('Bob');
@@ -87,7 +105,8 @@ const board = (name: string, count: number): MapFile => mapFromBoard(stations.sl
 
   for (const [what, content] of [
     ['a non-map', { hello: 'world' }],
-    ['a city pack (not accepted yet)', { ...v1, kind: 'pack' }],
+    ['a city map with no boundary', { ...v1, kind: 'pack', layers: {}, voronoi: {} }],
+    ['a city map whose layer has a feature with no id', { ...sydney, layers: { libraries: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [151.2, -33.87] } }] } }],
     ['a map with one station', { ...v1, stations: v1.stations.slice(0, 1) }],
     ['a station with no position', { ...v1, stations: [{ id: 'a', name: 'A' }, v1.stations[0]] }],
     ['duplicate station ids', { ...v1, stations: [v1.stations[0], v1.stations[0]] }],
@@ -95,6 +114,18 @@ const board = (name: string, count: number): MapFile => mapFromBoard(stations.sl
     const res = await alice.client.rpc('publish_map', { content, message: '' });
     check(`the database refuses ${what}`, !!res.error, res.error?.message);
   }
+
+  // A full city map, somewhere that is not San Francisco.
+  const cityMap = await alice.client.rpc('publish_map', { content: sydney, message: 'A whole other city' });
+  check('a full city map publishes', !cityMap.error, cityMap.error?.message);
+  const cityRow = await nobody.from('community_maps').select('kind, city, station_count, head_version_id').eq('id', cityMap.data).single();
+  check('...listed as a pack, for its own city', cityRow.data?.kind === 'pack' && cityRow.data.city === 'sydney' && cityRow.data.station_count === 3, cityRow.data);
+  const cityBack = await nobody.from('community_map_versions').select('content').eq('id', cityRow.data!.head_version_id).single();
+  const cityParsed = parseMapFile(cityBack.data?.content);
+  check('...and reads back identical, boundary, layers, cells and all', cityParsed.ok && serializeMap(cityParsed.map) === serializeMap(sydney));
+  const swapKind = await alice.client.rpc('publish_map_version', { map: cityMap.data, content: v1, message: 'now it is SF' });
+  check('a new version cannot turn a city map into a station map', !!swapKind.error, swapKind.error?.message);
+  await alice.client.from('community_maps').delete().eq('id', cityMap.data);
 
   const direct = await alice.client.from('community_maps').insert({ author_id: alice.id, author_name: 'Alice', name: 'x', kind: 'stations', city: 'sf' });
   check('a map row cannot be inserted directly, skipping validation', !!direct.error);
@@ -201,6 +232,22 @@ const board = (name: string, count: number): MapFile => mapFromBoard(stations.sl
   check('the right code signs in, as the same user the device already was', !verified.error && verified.data.user?.id === before, verified.error?.message);
   const nowAllowed = await guest.rpc('publish_map', { content: board(`Walk-in map ${run}`, 5), message: 'hello' });
   check('...who can now publish', !nowAllowed.error, nowAllowed.error?.message);
+
+  // ---- deleting an account: everything of theirs goes, in one cascade,
+  // including a like on a branch of their own map (see 0009).
+  const leaver = await member('Leaver');
+  const theirs = await leaver.client.rpc('publish_map', { content: board(`Leaver map ${run}`, 6), message: '' });
+  const theirHead = await nobody.from('community_maps').select('head_version_id').eq('id', theirs.data).single();
+  const offshoot = await bob.client.rpc('publish_map', { content: board(`Branch of leaver ${run}`, 5), message: '', parent_version: theirHead.data!.head_version_id });
+  await leaver.client.rpc('react_to_map', { map: offshoot.data, new_value: 1 });
+  await leaver.client.from('community_comments').insert({ map_id: offshoot.data, author_id: leaver.id, author_name: '', body: 'nice branch' });
+  const left = await admin.auth.admin.deleteUser(leaver.id);
+  check('an account with a branched map, and a like on that branch, can be deleted', !left.error, left.error?.message);
+  const survivor = await nobody.from('community_maps').select('parent_map_id, parent_version_id, parent_map_name, like_count, comment_count').eq('id', offshoot.data).maybeSingle();
+  check('...leaving the branch standing, unlinked, with their like and comment gone',
+    !!survivor.data && survivor.data.parent_map_id === null && survivor.data.parent_version_id === null
+    && survivor.data.parent_map_name === `Leaver map ${run}` && survivor.data.like_count === 0 && survivor.data.comment_count === 0, survivor.data);
+  await bob.client.from('community_maps').delete().eq('id', offshoot.data);
 
   // ---- deleting
   const notYours = await bob.client.from('community_maps').delete().eq('id', mapId).select('id');

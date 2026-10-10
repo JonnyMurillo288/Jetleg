@@ -43,8 +43,10 @@
     "@turf/intersect": "^7.4.0",
     "@turf/nearest-point": "^7.4.0",
     "@turf/point-to-line-distance": "^7.4.0",
+    "@turf/simplify": "^7.4.0",
     "@turf/union": "^7.4.0",
     "@turf/voronoi": "^7.4.0",
+    "d3-delaunay": "^6.0.4",
     "idb-keyval": "^6.3.0",
     "maplibre-gl": "^6.7.0",
     "pmtiles": "^4.5.0",
@@ -54,6 +56,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@types/d3-delaunay": "^6.0.4",
     "@types/geojson": "^7946.0.16",
     "@types/node": "^24.13.3",
     "@types/proj4": "^2.5.6",

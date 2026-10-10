@@ -56,7 +56,7 @@ npm run verify:payments # verify-payments.ts — entitlement RPC + RLS against a
 npm run verify:room    # verify-room.ts — game rooms + live sharing: who gets on the channel, and that a hider's broadcast is refused (needs `supabase start`)
 npm run verify:room:ui # verify-room-ui.cjs — two browsers through the Game tab; asks the hider's map what it drew, and watches what the hider's browser sends
 npm run verify:community    # verify-community.ts — community maps: who may publish/like/comment, versions, branches, concurrent counts, the real emailed-code sign-in
-npm run verify:community:ui # verify-community-ui.cjs — two browsers: draw a map by tapping, publish, play on it, like, comment, branch
+npm run verify:community:ui # verify-community-ui.cjs — two browsers in the map studio (#/maps): a station map, then a whole city (boundary, OSM stations + places, Voronoi built and hand-made), play it in the game, like, comment, branch. OSM is mocked.
 npm run verify:developer    # verify-developer.ts — developer list in the DB, then paywall -> sign in -> round starts, in a browser
 TARGET=https://jetleg-sf.pages.dev/ npm run verify:tools   # any suite, against a deployment
 ```
@@ -148,6 +148,23 @@ band or an empty POI layer is a real signal, not noise to silence.
 `stations.json`.
 
 ## Things that will bite
+
+- **There is more than one board now, and the engine has to be told.** A
+  community map can replace the stations or be a different city. Anything
+  cached in the engine belongs to a board: clear it in `engine/reset.ts`'s
+  `enterBoard`, and never key a cache on something that was only unique
+  while there was one board (a layer name, a station id, a station count).
+- **The projection follows the board**, not a constant. "All geometry runs in
+  UTM 10N" below is true for San Francisco; elsewhere it is the board's own
+  zone, set by `enterBoard`. Code that needs a projection for a board that is
+  not loaded (the studio, building cells) takes one from `projectionAt`.
+- **Mocks do not prove a public API's shape.** The studio's OSM tools passed
+  against fixtures and then failed live: Nominatim refuses Node's default
+  User-Agent (403), and Overpass rate-limits a dozen quick requests (429).
+  After changing `osm.ts`, drive the studio once unmocked.
+- **Switching git branches breaks the running functions container.** `main`
+  has no `supabase/`; after returning, edge functions fail with "failed to
+  determine entrypoint" until `docker restart supabase_edge_runtime_JetLeg`.
 
 - **All geometry runs in UTM 10N**, never lon/lat. A degree of longitude is 0.79
   of a degree of latitude here; bisectors and Voronoi cells built in degree

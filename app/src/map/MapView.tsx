@@ -58,6 +58,10 @@ type Props = {
   planFc: FeatureCollection;
   /** Other seekers in this device's game, live. Empty outside a game. */
   peersFc: FeatureCollection;
+  /** Map studio: a tap on a POI of a visible layer. Takes precedence over a plain map tap. */
+  onPoiClick?: (layerKey: string, id: string, ll: LngLat) => void;
+  /** Move the view to these bounds. A new object each time it should move. */
+  lookAt?: { bbox: [number, number, number, number] } | null;
 };
 
 /**
@@ -194,6 +198,10 @@ export function MapView(props: Props) {
       const hits = m.queryRenderedFeatures(e.point, { layers: ['stations-dot', 'stations-hit'] });
       const id = hits[0]?.properties?.id as string | undefined;
       const ll: LngLat = [e.lngLat.lng, e.lngLat.lat];
+      if (latest.current.onPoiClick) {
+        const poi = m.queryRenderedFeatures(e.point, { layers: ['pois'] })[0]?.properties;
+        if (poi?.id && poi.layerKey) { latest.current.onPoiClick(poi.layerKey, poi.id, ll); return; }
+      }
       if (id && latest.current.onStationClick) latest.current.onStationClick(id, ll);
       else latest.current.onMapClick?.(ll);
     });
@@ -237,6 +245,25 @@ export function MapView(props: Props) {
     props.measureFc,
     props.planFc,
   ]);
+
+  /**
+   * Follow the board. The view used to be set once, at start, to the one
+   * board there was. A community map can be a different city entirely, and
+   * loading it with the camera still over San Francisco shows an empty map
+   * that is, technically, working. The first run is skipped: the map was
+   * constructed on these bounds already.
+   */
+  const bboxKey = props.data.bbox.join(',');
+  const firstBbox = useRef(bboxKey);
+  useEffect(() => {
+    if (!map.current || firstBbox.current === bboxKey) return;
+    firstBbox.current = '';
+    map.current.fitBounds(props.data.bbox as [number, number, number, number], { padding: 24, duration: 600 });
+  }, [bboxKey]);
+
+  useEffect(() => {
+    if (map.current && props.lookAt) map.current.fitBounds(props.lookAt.bbox, { padding: 32, duration: 600 });
+  }, [props.lookAt]);
 
   /**
    * Live peers get their own, tiny repaint. They move every few seconds per
@@ -699,6 +726,10 @@ function colorFor(key: string, visible: string[]): string {
 }
 
 function redraw(m: MLMap, p: Props) {
+  // The boundary and districts were static once; a community map replaces them.
+  (m.getSource('boundary') as GeoJSONSource)?.setData(featureCollection([p.data.boundary as any]));
+  (m.getSource('districts') as GeoJSONSource)?.setData(p.data.districts);
+
   // Zones + stations carry an `alive` flag the style keys off.
   const zones: FeatureCollection = {
     type: 'FeatureCollection',
@@ -748,7 +779,7 @@ function redraw(m: MLMap, p: Props) {
     const labelled = !p.visibleLayers.includes(`${key}:voronoi`);
     for (const f of layer.features) {
       if (f.geometry?.type !== 'Point') continue;
-      pois.features.push({ ...f, properties: { ...f.properties, color, labelled } });
+      pois.features.push({ ...f, properties: { ...f.properties, color, labelled, layerKey: key } });
     }
   });
   (m.getSource('pois') as GeoJSONSource)?.setData(pois);

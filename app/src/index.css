@@ -571,3 +571,31 @@ textarea { font: inherit; width: 100%; box-sizing: border-box; padding: 8px 10px
 @media (prefers-color-scheme: dark) {
   .community .reactions button.on { background: var(--accent); border-color: var(--accent); color: #111827; }
 }
+
+/* ------------------------------------------------------------- map studio */
+
+a.buttonlink {
+  display: inline-flex; align-items: center; min-height: 36px; padding: 6px 12px;
+  border: 1px solid var(--line); border-radius: 8px; color: inherit; text-decoration: none; background: var(--panel);
+  white-space: nowrap;
+}
+.studio .studiotitle { font-size: 16px; padding-left: 4px; }
+.studio .tabs { margin: 8px 0 10px; }
+.studio .tabs button { padding: 6px 4px; font-size: 13px; min-height: 36px; }
+.editor h2 .tag { margin-left: 8px; vertical-align: middle; font-weight: 400; }
+.editor .modes { gap: 4px 12px; }
+.editor .modes .check { margin: 0; min-height: 30px; }
+.list.layeraudit li { align-items: flex-start; }
+.list.layeraudit button.link { text-align: left; }
+.list.layeraudit .maprow { display: block; }
+.app.studio.collapsed .sheet { max-height: 8dvh; }
+
+/* On a desk the studio is a workbench: map on the left, tools down the right. */
+@media (min-width: 900px) {
+  .app.studio { grid-template-columns: minmax(0, 1fr) 460px; grid-template-rows: auto minmax(0, 1fr); }
+  .app.studio .topbar { grid-column: 1 / -1; }
+  .app.studio .sheet { max-height: none; border-top: 0; border-left: 1px solid var(--line); }
+  .app.studio .sheet-handle { display: none; }
+  .app.studio.collapsed .sheet { max-height: none; overflow-y: auto; }
+  .app.studio.collapsed .sheet > :not(.sheet-handle) { display: block; }
+}
