@@ -215,6 +215,7 @@ select { font: inherit; padding: 10px; border: 1px solid var(--line); border-rad
 .thermo { border-top: 1px solid var(--line); padding-top: 8px; }
 .thermo-handoff { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); }
 .thermo-handoff .tag { font-size: 12px; padding: 3px 8px; }
+.importresult { margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: #ecfdf5; }
 
 .fatal { padding: 32px; }
 code { background: var(--line); padding: 2px 5px; border-radius: 4px; font-size: 13px; }
@@ -226,6 +227,7 @@ code { background: var(--line); padding: 2px 5px; border-radius: 4px; font-size:
     color-scheme: dark;
   }
   .hint.fact { background: #052e26; border-color: #065f46; }
+  .importresult { background: #052e26; border-color: #065f46; }
   .hint.warn { background: #2b2005; border-color: #78350f; }
   .cost, .tag.warn { background: #78350f; color: #fde68a; }
   .seg button.on { background: var(--accent); color: #111827; }

@@ -195,7 +195,7 @@ type State = {
   toggleQuestionDisabled: (questionId: string) => void;
 
   exportJSON: () => string;
-  importJSON: (raw: string) => { ok: true } | { ok: false; error: string };
+  importJSON: (raw: string) => { ok: true; imported: Round[] } | { ok: false; error: string };
 };
 
 const idbStorage = {
@@ -425,7 +425,10 @@ export const useGame = create<State>()(
             rounds: [...get().rounds, ...incoming],
             settings: { ...get().settings, ...(doc.settings ?? {}) },
           });
-          return { ok: true };
+          // Handed back so the importing screen can offer to resume one of
+          // these directly, rather than making the player find it themselves
+          // in a "Previous rounds" list that may already be long.
+          return { ok: true, imported: incoming };
         } catch (e) {
           return { ok: false, error: e instanceof Error ? e.message : 'Could not parse file.' };
         }

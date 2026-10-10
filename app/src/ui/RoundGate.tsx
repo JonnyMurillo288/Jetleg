@@ -1,9 +1,10 @@
-import { useRef } from 'react';
-import { useGame } from '../store/game';
+import { useRef, useState } from 'react';
+import { useGame, type Round } from '../store/game';
 
 /** Shown when there is no active round: start one, or resume/export an old one. */
 export function RoundGate() {
   const role = useGame((s) => s.role);
+  const setRole = useGame((s) => s.setRole);
   const rounds = useGame((s) => s.rounds).filter((r) => r.role === role);
   const startRound = useGame((s) => s.startRound);
   const setActiveRound = useGame((s) => s.setActiveRound);
@@ -11,6 +12,15 @@ export function RoundGate() {
   const exportJSON = useGame((s) => s.exportJSON);
   const importJSON = useGame((s) => s.importJSON);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * The rounds a just-imported file actually added, offered as a direct
+   * "resume" action — finding a just-imported round by scrolling a
+   * "Previous rounds" list that may already be long is the wrong ask right
+   * after the player explicitly asked to bring one in.
+   */
+  const [imported, setImported] = useState<Round[] | null>(null);
+  const [importMsg, setImportMsg] = useState<string | null>(null);
 
   const download = () => {
     const blob = new Blob([exportJSON()], { type: 'application/json' });
@@ -23,7 +33,21 @@ export function RoundGate() {
 
   const upload = async (f: File) => {
     const res = importJSON(await f.text());
-    if (!res.ok) alert(res.error);
+    if (!res.ok) {
+      setImported(null);
+      setImportMsg(res.error);
+      return;
+    }
+    setImported(res.imported);
+    setImportMsg(res.imported.length === 0 ? 'Nothing new — those rounds are already on this device.' : null);
+  };
+
+  // A round from a different role than the one currently selected still
+  // needs that role active, or `setActiveRound` would set an id `rounds`
+  // (filtered by the current role above) can never actually show.
+  const resume = (r: Round) => {
+    if (r.role !== role) setRole(r.role);
+    setActiveRound(r.id);
   };
 
   return (
@@ -43,7 +67,7 @@ export function RoundGate() {
           <ul className="list">
             {rounds.slice().reverse().map((r) => (
               <li key={r.id}>
-                <button className="link grow" onClick={() => setActiveRound(r.id)}>
+                <button className="link grow" onClick={() => resume(r)}>
                   {r.label}
                   <span className="muted">
                     {' · '}{new Date(r.startedAt).toLocaleString()}
@@ -76,6 +100,33 @@ export function RoundGate() {
           onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])}
         />
       </div>
+
+      {imported !== null && (
+        imported.length > 0 ? (
+          <div className="importresult">
+            <p className="muted small">
+              Imported {imported.length} round{imported.length === 1 ? '' : 's'}. Resume one now:
+            </p>
+            <ul className="list">
+              {imported.map((r) => (
+                <li key={r.id}>
+                  <button className="link grow" onClick={() => resume(r)}>
+                    {r.label}
+                    <span className="muted">
+                      {' · '}{r.role} · {new Date(r.startedAt).toLocaleString()}
+                      {r.role === 'seeker' && ` · ${r.asks.length} questions`}
+                      {r.endedAt ? ' · ended' : ''}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          importMsg && <p className="muted small">{importMsg}</p>
+        )
+      )}
+      {imported === null && importMsg && <p className="warntext small">{importMsg}</p>}
     </div>
   );
 }
