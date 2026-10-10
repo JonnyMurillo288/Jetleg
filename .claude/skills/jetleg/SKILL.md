@@ -53,6 +53,11 @@ npm run verify:units  # verify-units.cjs — one unit everywhere; sweeps every s
 npm run verify:sync   # verify-sync.ts — game-history sync against a live Supabase (needs `supabase start`)
 npm run verify:results # verify-results.cjs — plays a real round, ends it, checks the Results tab against it
 npm run verify:payments # verify-payments.ts — entitlement RPC + RLS against a live Supabase (needs `supabase start` + `supabase functions serve`)
+npm run verify:room    # verify-room.ts — game rooms + live sharing: who gets on the channel, and that a hider's broadcast is refused (needs `supabase start`)
+npm run verify:room:ui # verify-room-ui.cjs — two browsers through the Game tab; asks the hider's map what it drew, and watches what the hider's browser sends
+npm run verify:community    # verify-community.ts — community maps: who may publish/like/comment, versions, branches, concurrent counts, the real emailed-code sign-in
+npm run verify:community:ui # verify-community-ui.cjs — two browsers: draw a map by tapping, publish, play on it, like, comment, branch
+npm run verify:developer    # verify-developer.ts — developer list in the DB, then paywall -> sign in -> round starts, in a browser
 TARGET=https://jetleg-sf.pages.dev/ npm run verify:tools   # any suite, against a deployment
 ```
 
@@ -85,6 +90,12 @@ Reading a GeoJSON source's contents in a harness: `map.getSource(id).serialize()
 If anything touched the question list or a layer, **time it with the CPU
 throttled 4x** (`Emulation.setCPUThrottlingRate`). Category switches must be
 single-digit milliseconds; anything over ~300 ms is a freeze on a real phone.
+
+**`verify`, `verify:tools`, `verify:results` and `verify:units` currently stop
+at the paywall** — they predate payments and start a round in a fresh browser
+with no pass. They are not passing, they are not running. Until they sign in
+as a developer first (see `verify-developer.ts` for how), do not read their
+failure as a regression or their absence as a pass.
 
 ## Deploying
 

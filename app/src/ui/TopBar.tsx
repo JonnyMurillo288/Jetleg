@@ -8,8 +8,10 @@ export function TopBar(props: {
   loc: LocationState;
   alive: number;
   total: number;
-  tab: 'play' | 'layers' | 'results' | 'help';
-  onTab: (t: 'play' | 'layers' | 'results' | 'help') => void;
+  tab: 'play' | 'layers' | 'results' | 'game' | 'community' | 'help';
+  onTab: (t: 'play' | 'layers' | 'results' | 'game' | 'community' | 'help') => void;
+  /** The code of the game room this device is in, if any. */
+  gameCode: string | null;
 }) {
   const { loc, alive, total, tab, onTab } = props;
   const role = useGame((s) => s.role);
@@ -30,13 +32,13 @@ export function TopBar(props: {
 
         <div className="seg">
           <button className={tab === 'play' ? 'on' : ''} onClick={() => onTab('play')}>Play</button>
-          <button className={tab === 'layers' ? 'on' : ''} onClick={() => onTab('layers')}>Map</button>
+          <button className={tab === 'layers' || tab === 'community' ? 'on' : ''} onClick={() => onTab('layers')}>Map</button>
           <button className={tab === 'results' ? 'on' : ''} onClick={() => onTab('results')}>Results</button>
           <button className={tab === 'help' ? 'on' : ''} onClick={() => onTab('help')} title="Diagnostics">?</button>
         </div>
       </div>
 
-      <LocationLine loc={loc} onTab={onTab} />
+      <LocationLine loc={loc} tab={tab} onTab={onTab} gameCode={props.gameCode} />
       <EntitlementLine />
     </header>
   );
@@ -55,6 +57,7 @@ function EntitlementLine() {
   }, []);
 
   if (!entitlement?.eligible || !entitlement.expiresAt) return null;
+  if (entitlement.product === 'developer') return <div className="muted small">Developer access</div>;
 
   const remainingMs = new Date(entitlement.expiresAt).getTime() - Date.now();
   if (remainingMs <= 0) return null;
@@ -82,7 +85,9 @@ function formatDuration(ms: number): string {
  */
 function LocationLine(props: {
   loc: LocationState;
-  onTab: (t: 'play' | 'layers' | 'results' | 'help') => void;
+  tab: 'play' | 'layers' | 'results' | 'game' | 'community' | 'help';
+  onTab: (t: 'play' | 'layers' | 'results' | 'game' | 'community' | 'help') => void;
+  gameCode: string | null;
 }) {
   const { loc } = props;
   const ageSeconds = useFixAge(loc.fix);
@@ -123,6 +128,19 @@ function LocationLine(props: {
           title={manual.enabled ? 'Switch back to GPS' : 'Set your position by hand and stop using GPS'}
         >
           {manual.enabled ? 'Manual' : 'GPS'}
+        </button>
+
+        {/* Lives here rather than in the tab row above: a fifth tab left the
+            zone counter no room at phone width. Showing the code doubles as
+            the reminder that this phone is in a game — and so, when seeking,
+            sharing its position. */}
+        <button
+          className={`gpstoggle ${props.tab === 'game' ? 'on' : ''}`}
+          onClick={() => props.onTab(props.tab === 'game' ? 'play' : 'game')}
+          aria-pressed={props.tab === 'game'}
+          title={props.gameCode ? `In game ${props.gameCode}` : 'Create or join a game to share seeker locations'}
+        >
+          {props.gameCode ? `Game ${props.gameCode}` : 'Game'}
         </button>
       </div>
 

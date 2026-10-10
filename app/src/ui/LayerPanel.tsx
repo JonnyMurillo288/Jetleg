@@ -12,7 +12,13 @@ import { ZONE_RADIUS_M } from '../engine/candidates';
  * as mine?" — is literally a question about which Voronoi cell you are standing
  * in. Being able to see the cells turns a yes/no into a shape on the map.
  */
-export function LayerPanel({ data }: { data: GameData }) {
+export function LayerPanel(props: {
+  data: GameData;
+  /** The community map being played on, or null for the built-in board. */
+  boardName: string | null;
+  onCommunity: () => void;
+}) {
+  const { data } = props;
   const visible = useGame((s) => s.visibleLayers);
   const toggle = useGame((s) => s.toggleLayer);
   const settings = useGame((s) => s.settings);
@@ -20,6 +26,15 @@ export function LayerPanel({ data }: { data: GameData }) {
 
   return (
     <div className="pad">
+      <h3>Game board</h3>
+      <div className="row">
+        <span className="grow">
+          {props.boardName ?? 'Built-in San Francisco board'}
+          <span className="muted small"> · {data.stations.length} stations</span>
+        </span>
+        <button onClick={props.onCommunity}>Community maps</button>
+      </div>
+
       <h3>Map layers</h3>
       <p className="muted small">
         Turning a layer on also labels it. Voronoi cells show which feature each

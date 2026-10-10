@@ -19,12 +19,26 @@ import { LayerPanel } from './ui/LayerPanel';
 import { RoundGate } from './ui/RoundGate';
 import { Diagnostics } from './ui/Diagnostics';
 import { ResultsPanel } from './ui/ResultsPanel';
+import { GamePanel } from './ui/GamePanel';
 import { checkEntitlement, hasCachedValidEntitlement } from './payments/entitlement';
+import { loadGame, type LocalGame } from './live/room';
+import { useLiveLocations } from './live/useLiveLocations';
+import { buildPeersFc, type SharePosition } from './live/share';
+import { supabase } from './sync/client';
+import { CommunityPanel } from './ui/CommunityPanel';
+import { editorTap, type EditorState } from './ui/MapEditor';
+import { applyMap, checkMap } from './community/board';
+import { loadActiveMap, saveActiveMap, stampOf, type ActiveMap } from './community/active';
 
 export default function App() {
-  const [data, setData] = useState<GameData | null>(null);
+  // The board as shipped. `data`, below, is what is actually played on: this,
+  // or this with a community map's stations swapped in.
+  const [base, setBase] = useState<GameData | null>(null);
+  const [activeMap, setActiveMap] = useState<ActiveMap | null>(null);
+  /** An open map editor. Its draft is the board for as long as it is open. */
+  const [editor, setEditor] = useState<EditorState | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'play' | 'layers' | 'results' | 'help'>('play');
+  const [tab, setTab] = useState<'play' | 'layers' | 'results' | 'game' | 'community' | 'help'>('play');
   const [pins, setPins] = useState<{ start?: LngLat; end?: LngLat }>({});
 
   const role = useGame((s) => s.role);
@@ -47,6 +61,40 @@ export default function App() {
   const plan = useGame((s) => s.plan);
   const planOnMap = useGame((s) => s.planOnMap);
   const round = useActiveRound();
+  const setBoard = useGame((s) => s.setBoard);
+  const updateSettings = useGame((s) => s.updateSettings);
+  const roundActive = !!round && !round.endedAt;
+
+  /**
+   * Only the station list decides the board, so only it is a dependency:
+   * typing a draft's name must not rebuild 192 zones per keystroke.
+   */
+  const boardStations = (editor?.draft ?? activeMap?.map)?.stations;
+  const data = useMemo(() => {
+    if (!base) return null;
+    const map = editor?.draft ?? activeMap?.map;
+    return map ? applyMap(base, map) : base;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [base, boardStations]);
+
+  // Rounds are stamped with the board they start on (store/game.ts).
+  useEffect(() => { setBoard(stampOf(activeMap)); }, [activeMap, setBoard]);
+
+  /** Choose a board. Returns why not, when it cannot be chosen. */
+  const activate = async (next: ActiveMap | null): Promise<string | null> => {
+    if (!base) return 'The board is still loading.';
+    if (roundActive) return 'End your round before changing boards.';
+    if (next) {
+      const blocker = checkMap(next.map, base.boundary).find((p) => p.blocking);
+      if (blocker) return blocker.text;
+    }
+    await saveActiveMap(next);
+    setActiveMap(next);
+    // A map's house rules are applied once, when it is chosen; the player
+    // can still change them on the Map tab afterwards.
+    if (next) updateSettings(next.map.rules);
+    return null;
+  };
 
   // Manual mode stops the watch outright rather than ignoring it.
   const loc = useLocation(!manual.enabled);
@@ -60,9 +108,40 @@ export default function App() {
     : loc.fix?.coords ?? null;
 
   useEffect(() => {
-    loadGameData().then(setData).catch((e) => setLoadError(String(e)));
+    Promise.all([loadGameData(), loadActiveMap().catch(() => null)])
+      .then(([loaded, stored]) => {
+        setBase(loaded);
+        // A stored map that no longer fits this board (a boundary change in
+        // a later build) is dropped rather than drawn wrong.
+        if (stored && !checkMap(stored.map, loaded.boundary).some((p) => p.blocking)) setActiveMap(stored);
+      })
+      .catch((e) => setLoadError(String(e)));
     requestPersistence();
   }, []);
+
+  // The game room this device is in, if any. Membership only — which game,
+  // which team — restored from IndexedDB so a reload stays in the game.
+  const [game, setGame] = useState<LocalGame | null>(null);
+  useEffect(() => {
+    loadGame().then(setGame);
+  }, []);
+
+  /**
+   * What this device would share with its game: the same `origin` every
+   * panel anchors on, so the dot the others see is the position this
+   * player's own questions are being asked from. Only ever sent while
+   * seeking — see live/share.ts.
+   */
+  const sharePosition = useMemo<SharePosition | null>(
+    () =>
+      origin
+        ? { coords: origin, accuracyM: manual.enabled ? undefined : loc.fix?.accuracyM, manual: manual.enabled }
+        : null,
+    [origin?.[0], origin?.[1], manual.enabled, loc.fix?.accuracyM],
+  );
+  // A hider's position is not handed to the live module at all.
+  const live = useLiveLocations(game, role, role === 'seeker' ? sharePosition : null);
+  const peersFc = useMemo(() => buildPeersFc(live.peers), [live.peers]);
 
   // null = not checked yet, so the paywall never flashes before the (fast,
   // local) cache read resolves.
@@ -94,7 +173,16 @@ export default function App() {
       if (!cancelled) setEntitled(cachedOk);
       if (!cancelled) refreshEntitlement();
     })();
-    return () => { cancelled = true; };
+
+    // Who is signed in changes what they are entitled to: a developer's
+    // sign-in unlocks play on the spot, and signing out gives it back. The
+    // check is deferred a tick — supabase-js must not be called from inside
+    // its own auth callback.
+    const sub = supabase?.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') setEntitled(false);
+      else if (event === 'SIGNED_IN' || event === 'USER_UPDATED') window.setTimeout(refreshEntitlement, 0);
+    });
+    return () => { cancelled = true; sub?.data.subscription.unsubscribe(); };
   }, []);
 
   /**
@@ -211,6 +299,13 @@ export default function App() {
     [data, round?.hiderStationId],
   );
 
+  // The editor owns the panel while it is open, whichever tab was showing.
+  const shownTab = editor ? 'community' : tab;
+  const editorSelected = editor?.selectedId ? editor.draft.stations.find((s) => s.id === editor.selectedId) : undefined;
+  const editorPoint: LngLat | null = editor
+    ? editor.pending ?? (editorSelected ? [editorSelected.lon, editorSelected.lat] : null)
+    : null;
+
   if (loadError) {
     return (
       <div className="fatal">
@@ -231,8 +326,9 @@ export default function App() {
         loc={loc}
         alive={evaluated.alive.length}
         total={data.stations.length}
-        tab={tab}
-        onTab={setTab}
+        tab={shownTab}
+        onTab={(t) => { if (!editor) setTab(t); }}
+        gameCode={game?.joinCode ?? null}
       />
 
       <MapView
@@ -243,8 +339,11 @@ export default function App() {
         visibleLayers={visibleLayers}
         outOfPlay={outOfPlay}
         mapLayers={mapLayers}
-        fix={manual.enabled ? null : loc.fix}
-        manualPoint={manual.enabled ? manual.coords ?? null : null}
+        // While a map is being edited the hollow ring marks the spot being
+        // added, or the station selected — the player's own dot would only
+        // be in the way.
+        fix={editor || manual.enabled ? null : loc.fix}
+        manualPoint={editor ? editorPoint : manual.enabled ? manual.coords ?? null : null}
         pins={
           role === 'hider'
             ? { seekers: round?.seekerPin, start: hiderThermo.start, end: hiderThermo.end }
@@ -253,9 +352,11 @@ export default function App() {
         hiderStation={hiderStation}
         measureFc={measureFc}
         planFc={planFc}
+        peersFc={peersFc}
         // Armed placement wins over claiming a station — otherwise the station
         // hit targets swallow the tap and the pin can never be placed.
         onStationClick={(id, ll) => {
+          if (editor) { setEditor(editorTap(editor, ll, id)); return; }
           // An armed measuring tool owns every tap, including one that lands on
           // a station — otherwise a circle can never be centred on one.
           if (measure.tool !== 'off') { measureTap(ll); return; }
@@ -270,13 +371,14 @@ export default function App() {
         // is on, where every placement goes through tap-and-hold plus the
         // panel toggle, so a stray tap cannot silently move a point.
         onMapClick={(ll) => {
+          if (editor) { setEditor(editorTap(editor, ll)); return; }
           if (measure.tool !== 'off') { measureTap(ll); return; }
           if (role !== 'hider' || !round || round.endedAt) return;
           if (hiderThermo.arm !== 'none') { placeHiderThermo(ll); return; }
           if (armSeekerPin || !manual.enabled) setSeekerPin(ll);
         }}
         onLongPress={(ll) => {
-          if (!manual.enabled) return;
+          if (editor || !manual.enabled) return;
           if (role === 'hider' && hiderPlaceTarget === 'seekers') {
             if (round && !round.endedAt) setSeekerPin(ll);
           } else {
@@ -289,7 +391,7 @@ export default function App() {
         data={data}
         alive={evaluated.alive}
         total={data.stations.length}
-        canMeasure={!!round && !round.endedAt}
+        canMeasure={roundActive && !editor}
       />
 
       <div className="sheet">
@@ -304,12 +406,30 @@ export default function App() {
           </span>
         </button>
 
-        {tab === 'help' ? (
+        {shownTab === 'community' ? (
+          <CommunityPanel
+            base={base!}
+            stations={data.stations}
+            active={activeMap}
+            onActivate={activate}
+            editor={editor}
+            setEditor={setEditor}
+            roundActive={roundActive}
+          />
+        ) : tab === 'help' ? (
           <Diagnostics />
         ) : tab === 'layers' ? (
-          <LayerPanel data={data} />
+          <LayerPanel data={data} boardName={activeMap?.map.name ?? null} onCommunity={() => setTab('community')} />
         ) : tab === 'results' ? (
           <ResultsPanel data={data} />
+        ) : tab === 'game' ? (
+          <GamePanel
+            game={game}
+            onGame={setGame}
+            peers={live.peers}
+            status={live.status}
+            hasPosition={!!origin}
+          />
         ) : !round || round.endedAt ? (
           <RoundGate canStart={entitled === true} onRestored={refreshEntitlement} />
         ) : role === 'seeker' ? (

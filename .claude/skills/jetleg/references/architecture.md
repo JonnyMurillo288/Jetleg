@@ -299,6 +299,141 @@ test that actually matters: it signs in a second, unrelated device and
 asserts it reads back zero rows for another team's session, rather than
 trusting the schema to imply that on its own.
 
+## Game rooms and live location (`app/src/live/`, `0005_game_rooms.sql`)
+
+The first thing in the app that is live between phones, and scoped to exactly
+one thing: **seekers' positions, shown on the map of everyone in the same
+game.** No asks, no answers, no round state.
+
+### The room
+
+A game has a six-character `join_code` — the game token. One player creates
+a game (and their team) on the **Game** button in the GPS row; everyone else
+enters the code, then joins a listed team or adds one. A pass granted with
+`grant-entitlement.ts` already carries a `game_id`, so the app offers that
+game's code pre-filled (`entitled_game_code()`).
+
+Membership lives in `game_members`, and is written **only** by
+security-definer functions (`create_game`, `join_game`, `set_game_role`,
+`leave_game`) — there is no insert policy. `team_members` could not be
+reused: its policy lets any signed-in device join any team id, and `teams`
+is world-readable to signed-in devices, which is tolerable for finished
+history and not for a live position. `team_members` is still kept in step,
+so a finished round syncs to the same team with no second code.
+
+### The positions — relayed, never stored
+
+Positions travel as Supabase Realtime **Broadcast** on a private channel
+`game:<game id>`. Realtime relays a client broadcast to whoever is subscribed
+and keeps nothing; there is no table for positions, and `realtime.messages`
+stays empty (checked). On the receiving phone, peers live in React state
+only — nothing under `live/` writes a position to IndexedDB, and a reload
+forgets them. A seeker sends on movement (at most every 3 s) and re-sends
+every 10 s so a late joiner sees them; a dot fades after 30 s of silence and
+is removed after 2 min.
+
+### The fairness rule, in two independent layers
+
+1. **The app builds no message for a hider.** `share.ts`'s
+   `outgoingLocation` is the only place a position becomes sendable, and it
+   returns null unless the role is `seeker`. The sending half of
+   `useLiveLocations` exists only inside a seeker's run of the effect, and
+   `App.tsx` does not even pass a hider's position into the hook.
+2. **Realtime refuses a hider's broadcast.** `game_members.role` defaults to
+   `hider`; the insert policy on `realtime.messages` passes only for
+   `my_seeking_game_ids()`. Realtime evaluates that **when the channel is
+   joined**, so the hook declares the role (`set_game_role`) and rebuilds
+   the channel on every role change — keep those two together. Role
+   declarations are queued so a fast seeker→hider flip cannot land out of
+   order.
+
+`verify:room` forges a hider broadcast over both the socket and Realtime's
+HTTP endpoint and asserts no seeker receives it. `verify:room:ui` watches
+every frame and request the hider's browser sends for its own coordinates.
+
+### Map
+
+`peers-dot` / `peers-label`, from the `peers` source. They repaint in their
+own small effect in `MapView`, not through `redraw` — a peer moves every few
+seconds, and `redraw` rebuilds every zone polygon.
+
+## Community maps (`app/src/community/`, `0006_community.sql`)
+
+People publish their own boards, play each other's, and discuss them.
+
+### What a map is
+
+A `*.jetleg-map.json` document: a station list plus house rules, for a city
+board the app already ships (`kind: 'stations'`). `format.ts` is the single
+validator — a file off disk, a row from the server and a draft about to be
+published all go through `parseMapFile`. `kind: 'pack'` (a whole city:
+boundary, POI layers) is reserved in the format and already a legal value of
+the database column, but refused by both the parser and `publish_map()`;
+adding it is a new branch in `format.ts`, a loader, and Storage for the
+payload — not a migration of existing maps.
+
+### Playing on one
+
+`board.ts`'s `applyMap(base, map)` swaps the station set and rebuilds zones
+with the engine's own `zoneOf`; boundary, POI layers and their cells stay the
+base board's. `App.tsx` keeps `base` (as shipped) and derives `data` from it,
+keyed on the station array only. The chosen map is stored whole in IndexedDB
+(`active.ts`) with its exact version id, so it plays offline and an author's
+later version never changes a board mid-game. A station outside the boundary
+is blocking: answers are clipped to the boundary, so such a zone could never
+be ruled in or out.
+
+**The engine's caches had assumed one fixed board** and were wrong the moment
+it could change: zones keyed by station id, verdicts keyed by station *count*,
+nearest-POI results filled once from whichever stations asked first. They are
+now keyed by id-and-position, by a hash of the whole set, and filled per
+station. `community.test.ts` pins this with a map of the same size and ids
+with one station moved — it fails on the old keys.
+
+A round is stamped with its board (`Round.board`). The Results tab refuses to
+show zone counts for a round played on a different board than the one loaded,
+rather than scoring it against the wrong stations.
+
+### The git-like part
+
+| Git | Here |
+|---|---|
+| repository | `community_maps` — one author, one line of history |
+| commit | `community_map_versions` — immutable, each names its parent |
+| fork / branch | a new map with `parent_map_id` + `parent_version_id` (and `parent_map_name`, which survives the original's deletion) |
+| diff | `diffStations` — added / removed / moved / renamed |
+
+There is no merge and no pull request. Versions have no insert/update/delete
+policy at all; only `publish_map()` and `publish_map_version()` write them,
+after `validate_map_content_()`.
+
+### Who may write
+
+Reading is open to everyone, signed in or not. Writing needs a **verified
+email** — `is_signed_in()` checks the JWT's `is_anonymous` and `email` claims,
+because anonymous auth gives every device an `auth.uid()` and so that alone
+proves nothing. `account.ts` signs in with a typed six-digit code (a link
+would open in the browser, not the installed PWA): a new address is attached
+to the device's existing anonymous identity, keeping its id, pass and game;
+an address that already has an account replaces the device's identity, and
+its cached profile/team/game/pass are dropped. `supabase/templates/` puts the
+code in the email — a cloud project needs those pasted into the dashboard.
+
+Author names are copied from `profiles` by the server at write time, never
+taken from the request. Reactions are readable only by their owner; totals
+live on the map row and are recounted under a per-map **advisory** lock — a
+plain recount loses concurrent likes, and a row lock deadlocks against the
+foreign key's own key-share lock.
+
+## Developer access (`0007_developers.sql`, `app/grant-developer.ts`)
+
+A `developers` table of email addresses, invisible to every client. A signed
+in user whose verified email is on it gets `eligible: true, product:
+'developer'` from `check_and_activate_entitlement()` with a rolling 30-day
+expiry, so the existing offline cache carries them through a day with no
+signal and lapses within a month of being removed. The list is data, not
+migration: `npx tsx grant-developer.ts <email>` per environment.
+
 ## Payments (`supabase/functions/`, `app/src/payments/`)
 
 Phase 3 of `ROADMAP.md`: starting a round (including fully local, solo

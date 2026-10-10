@@ -5,6 +5,7 @@ import { evaluate } from '../engine/candidates';
 import { QUESTIONS_BY_ID } from '../engine/questions';
 import { formatDistance } from './units';
 import { describeAnswer } from './AskLog';
+import { sameBoard } from '../community/active';
 
 function formatDuration(ms: number): string {
   const totalMin = Math.max(0, Math.round(ms / 60_000));
@@ -68,7 +69,13 @@ function RoundResult(props: { round: Round; data: GameData; onBack: () => void }
     [data, round.asks, strictness],
   );
 
-  const station = round.hiderStationId ? data.stations.find((s) => s.id === round.hiderStationId) : undefined;
+  // Zone counts are only meaningful against the stations the round was
+  // actually played on. On any other board, say so instead of showing a
+  // number computed from the wrong set.
+  const currentBoard = useGame((s) => s.board);
+  const otherBoard = !sameBoard(round.board, currentBoard);
+
+  const station = round.hiderStationId && !otherBoard ? data.stations.find((s) => s.id === round.hiderStationId) : undefined;
   const left = evaluated.alive.length;
   const total = evaluated.verdicts.length;
 
@@ -82,11 +89,20 @@ function RoundResult(props: { round: Round; data: GameData; onBack: () => void }
         {' · '}{formatDuration((round.endedAt ?? round.startedAt) - round.startedAt)}
       </p>
 
+      {otherBoard && (
+        <p className="hint warn">
+          This round was played on {round.board ? `the map “${round.board.name}”` : 'the built-in board'}, not the one
+          loaded now. Switch back to it on the Map tab to see its zone counts.
+        </p>
+      )}
+
       <div className="resultstats">
-        <div className="stat">
-          <strong>{left}</strong>
-          <span className="muted small">of {total} zones still possible</span>
-        </div>
+        {!otherBoard && (
+          <div className="stat">
+            <strong>{left}</strong>
+            <span className="muted small">of {total} zones still possible</span>
+          </div>
+        )}
         <div className="stat">
           <strong>{round.asks.length}</strong>
           <span className="muted small">question{round.asks.length === 1 ? '' : 's'} asked</span>

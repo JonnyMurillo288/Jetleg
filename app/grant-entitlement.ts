@@ -51,20 +51,23 @@ const product = productArg;
   const sessionId = `admin-${crypto.randomUUID()}`;
 
   let gameId: string;
+  let gameCode: string;
   if (gameIdArg) {
-    const { data: game, error: gameError } = await supabase.from('games').select('id').eq('id', gameIdArg).single();
+    const { data: game, error: gameError } = await supabase.from('games').select('id, join_code').eq('id', gameIdArg).single();
     if (gameError || !game) {
       console.error(`No game found with id ${gameIdArg} — a typo here would silently orphan the grant, so refusing instead.`);
       process.exit(1);
     }
     gameId = game.id;
+    gameCode = game.join_code;
   } else {
-    const { data: game, error: gameError } = await supabase.from('games').insert({}).select('id').single();
+    const { data: game, error: gameError } = await supabase.from('games').insert({}).select('id, join_code').single();
     if (gameError || !game) {
       console.error('Could not create a new game:', gameError?.message);
       process.exit(1);
     }
     gameId = game.id;
+    gameCode = game.join_code;
   }
 
   const { error } = await supabase.from('entitlements').insert({
@@ -83,7 +86,8 @@ const product = productArg;
 
   const { label, price } = PRODUCTS[product];
   console.log(`Granted ${label} (normally ${price}) to ${email}.`);
-  console.log(`Game id: ${gameId}${gameIdArg ? '' : ' (new — pass this to grant-entitlement.ts to add more players to this game)'}\n`);
+  console.log(`Game id: ${gameId}${gameIdArg ? '' : ' (new — pass this to grant-entitlement.ts to add more players to this game)'}`);
+  console.log(`Game code: ${gameCode} (what players enter on the app's Game tab; the app also offers it to them once the pass is restored)\n`);
   console.log('----- copy everything below this line -----\n');
   console.log(`Subject: Your JetLeg SF pass is ready\n`);
   console.log(
@@ -92,6 +96,9 @@ const product = productArg;
       ``,
       `Open the app, tap "Start a new round", then "Restore a purchase",`,
       `and enter this email address exactly: ${email}`,
+      ``,
+      `To see the seekers live on the map, open the Game tab and join`,
+      `game ${gameCode}.`,
       ``,
       `The clock starts the moment you actually play, not now — so there's`,
       `no rush to use it today.`,

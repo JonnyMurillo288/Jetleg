@@ -117,6 +117,61 @@ its own table; see the note in `0001_game_history.sql` and route through
 
 ---
 
+## 3b. Game rooms and live location sharing
+
+```bash
+npx supabase migration up     # applies 0005_game_rooms.sql without wiping local data
+cd app
+npm run verify:room           # three devices against the real server
+npm run build && npx vite preview --port 4310 &
+npm run verify:room:ui        # two browsers, through the Game tab
+```
+
+`verify:room` creates a game, joins it by code from a second device, and
+keeps a third outside. The lines that matter: the hider **receives** the
+seeker's position; an outsider is **refused the channel**; and a hider's
+forged broadcast — over the socket and over HTTP — **reaches no one**.
+
+`verify:room:ui` does it as two players would, standing in different places.
+It asks the hider's map what it drew (`peers-dot`), and records every
+websocket frame and request the hider's browser sends, failing if the
+hider's own coordinates appear in any of them.
+
+To see for yourself that nothing is kept:
+
+```bash
+docker exec $(docker ps --format '{{.Names}}' | grep supabase_db) \
+  psql -U postgres -c "select count(*) from realtime.messages"    # 0
+```
+
+By hand: open the preview in two browser profiles (or one normal, one
+private window), tap **Game** in each, create in one and join with the code
+in the other. Set one to Hider. The seeker's teal dot appears on the hider's
+map within a few seconds; the hider never appears on the seeker's.
+
+## 3c. Community maps and developer access
+
+```bash
+npx supabase migration up        # 0006_community.sql, 0007_developers.sql
+cd app
+npm run verify:community         # the database's rules, as four kinds of caller
+npm run build && npx vite preview --port 4310 &
+npm run verify:community:ui      # two browsers: draw, publish, play, like, comment, branch
+npm run verify:developer         # developer list, then paywall -> sign in -> play
+```
+
+Sign-in is an emailed six-digit code. Locally nothing is really sent: every
+email lands in the mail catcher at **http://127.0.0.1:54324** — open it to
+read a code. The harnesses read it from the same place.
+
+To have something to look at, and to get past the paywall yourself:
+
+```bash
+npm run seed:community                          # 4 dummy players, 7 maps, likes, threads
+npx tsx seed-community.ts --reset               # remove exactly that again
+npx tsx grant-developer.ts you@example.com      # free play for that email, once signed in
+```
+
 ## 4. Manual pass — watch it happen in the browser
 
 ```bash

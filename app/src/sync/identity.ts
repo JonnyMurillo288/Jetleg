@@ -50,6 +50,16 @@ export async function getOrCreateProfile(displayName: string): Promise<LocalProf
   return profile;
 }
 
+/**
+ * Records an identity and team that were established elsewhere — joining a
+ * game room (live/room.ts) creates both server-side in one step, and a
+ * finished round should then sync to that same team without a second code.
+ */
+export async function rememberIdentity(profile: LocalProfile, team: LocalTeam): Promise<void> {
+  await idbSet(PROFILE_KEY, profile);
+  await idbSet(TEAM_KEY, team);
+}
+
 function randomJoinCode(): string {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I
   return Array.from({ length: 6 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('');

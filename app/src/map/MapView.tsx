@@ -56,6 +56,8 @@ type Props = {
   measureFc: FeatureCollection;
   /** Candidate regions from the plan, prebuilt in slot colours. */
   planFc: FeatureCollection;
+  /** Other seekers in this device's game, live. Empty outside a game. */
+  peersFc: FeatureCollection;
 };
 
 /**
@@ -236,6 +238,15 @@ export function MapView(props: Props) {
     props.planFc,
   ]);
 
+  /**
+   * Live peers get their own, tiny repaint. They move every few seconds per
+   * seeker, and routing that through the redraw above would rebuild every
+   * zone polygon each time someone else takes a step.
+   */
+  useEffect(() => {
+    if (map.current && ready.current) drawPeers(map.current, props.peersFc);
+  }, [props.peersFc]);
+
   if (blocked) {
     return (
       <div className="map blocked">
@@ -276,6 +287,7 @@ function installLayers(m: MLMap, data: GameData) {
   src(m, 'voronoi', EMPTY);
   src(m, 'me', EMPTY);
   src(m, 'pins', EMPTY);
+  src(m, 'peers', EMPTY);
   src(m, 'hider', EMPTY);
   src(m, 'plan', EMPTY);
   src(m, 'measure', EMPTY);
@@ -639,6 +651,38 @@ function installLayers(m: MLMap, data: GameData) {
     layout: { 'text-field': ['get', 'role'], 'text-font': LABEL_FONT, 'text-size': 10, 'text-offset': [0, 1.2], 'text-anchor': 'top' },
     paint: { 'text-color': '#0f172a', 'text-halo-color': '#fff', 'text-halo-width': 1.5 },
   });
+
+  // Other seekers in the game, live. Teal and a size up, so they are never
+  // mistaken for this device's own blue dot, a hand-placed pin, or one of
+  // 192 brown station dots; faded once a
+  // position has gone quiet, because an old dot drawn like a fresh one lies.
+  m.addLayer({
+    id: 'peers-dot',
+    type: 'circle',
+    source: 'peers',
+    paint: {
+      'circle-radius': 8,
+      'circle-color': '#0d9488',
+      'circle-opacity': ['case', ['get', 'stale'], 0.4, 1],
+      'circle-stroke-color': '#fff',
+      'circle-stroke-width': 3,
+      'circle-stroke-opacity': ['case', ['get', 'stale'], 0.6, 1],
+    },
+  });
+  m.addLayer({
+    id: 'peers-label',
+    type: 'symbol',
+    source: 'peers',
+    layout: {
+      'text-field': ['get', 'name'],
+      'text-font': LABEL_FONT,
+      'text-size': 12,
+      'text-offset': [0, 1.3],
+      'text-anchor': 'top',
+      'text-allow-overlap': true,
+    },
+    paint: { 'text-color': '#115e59', 'text-halo-color': '#fff', 'text-halo-width': 2 },
+  });
 }
 
 const OVERLAY_COLORS = ['#dc2626', '#7c3aed', '#0891b2', '#ea580c', '#65a30d', '#db2777'];
@@ -771,6 +815,8 @@ function redraw(m: MLMap, p: Props) {
   if (p.pins.seekers) pins.features.push(pinAt(p.pins.seekers, 'seekers'));
   (m.getSource('pins') as GeoJSONSource)?.setData(pins);
 
+  drawPeers(m, p.peersFc);
+
   (m.getSource('plan') as GeoJSONSource)?.setData(p.planFc);
   (m.getSource('measure') as GeoJSONSource)?.setData(p.measureFc);
 
@@ -781,6 +827,10 @@ function redraw(m: MLMap, p: Props) {
     );
   }
   (m.getSource('hider') as GeoJSONSource)?.setData(hider);
+}
+
+function drawPeers(m: MLMap, fc: FeatureCollection) {
+  (m.getSource('peers') as GeoJSONSource)?.setData(fc);
 }
 
 function pinAt(ll: LngLat, role: 'start' | 'end' | 'seekers') {

@@ -1,4 +1,4 @@
-import { get as idbGet, set as idbSet } from 'idb-keyval';
+import { del as idbDel, get as idbGet, set as idbSet } from 'idb-keyval';
 import { supabase } from '../sync/client';
 import { getOrCreateDeviceId } from '../sync/identity';
 import type { Product } from './products';
@@ -9,7 +9,8 @@ const CACHE_KEY = 'payments/entitlement';
 
 export type CachedEntitlement = {
   eligible: boolean;
-  product: Product | null;
+  /** 'developer' is not for sale: it is what a listed developer's sign-in reports (0007_developers.sql). */
+  product: Product | 'developer' | null;
   expiresAt: string | null; // ISO, device's own clock compares it
   /** Which game this token belongs to, if the admin who granted it (or,
    * later, the purchase flow) scoped it to one. Not surfaced in any UI
@@ -57,6 +58,11 @@ export async function hasCachedValidEntitlement(): Promise<boolean> {
   return isStillValid(cached, Date.now());
 }
 
+/** Signing out leaves a device with no claim to the account's pass; see community/account.ts. */
+export async function forgetCachedEntitlement(): Promise<void> {
+  await idbDel(CACHE_KEY);
+}
+
 export async function getCachedEntitlement(): Promise<CachedEntitlement | null> {
   return (await idbGet<CachedEntitlement>(CACHE_KEY)) ?? null;
 }
@@ -82,7 +88,7 @@ export async function checkEntitlement(): Promise<CachedEntitlement> {
 
   const result: CachedEntitlement = {
     eligible: data.eligible,
-    product: (data.product as Product | null) ?? null,
+    product: (data.product as CachedEntitlement['product']) ?? null,
     expiresAt: data.expires_at ?? null,
     gameId: data.game_id ?? null,
   };

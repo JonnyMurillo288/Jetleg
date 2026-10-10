@@ -159,7 +159,16 @@ site_url = "http://127.0.0.1:3000"
 # The public URL that Auth serves on. Defaults to the API external URL with `/auth/v1` appended.
 # external_url = ""
 # A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
-additional_redirect_urls = ["https://127.0.0.1:3000"]
+additional_redirect_urls = [
+  "https://127.0.0.1:3000",
+  # Where the emailed sign-in link may land: the preview and dev servers,
+  # and the deployed site.
+  "http://127.0.0.1:4310",
+  "http://localhost:4310",
+  "http://localhost:5173",
+  "https://localhost:5173",
+  "https://jetleg-sf.pages.dev",
+]
 # How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
 jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
@@ -224,7 +233,10 @@ enable_signup = true
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
 # If enabled, users need to confirm their email address before signing in.
-enable_confirmations = false
+# On: community publishing, likes and comments are gated on a *verified*
+# email (is_signed_in() in 0006_community.sql). With this off, an anonymous
+# device could attach any address to itself, unverified, and pass as its owner.
+enable_confirmations = true
 # If enabled, users will need to reauthenticate or have logged in recently to change their password.
 secure_password_change = false
 # Controls the minimum amount of time that must pass before sending another signup confirmation or password reset email.
@@ -233,6 +245,22 @@ max_frequency = "1s"
 otp_length = 6
 # Number of seconds before the email OTP expires (defaults to 1 hour).
 otp_expiry = 3600
+
+# The stock templates carry only a link. A link opens in the phone's browser,
+# not in an installed PWA, so the app asks for the six-digit code instead and
+# these templates lead with it. A cloud project needs the same three bodies
+# pasted into Authentication > Email Templates.
+[auth.email.template.email_change]
+subject = "Your JetLeg sign-in code"
+content_path = "./supabase/templates/email_change.html"
+
+[auth.email.template.magic_link]
+subject = "Your JetLeg sign-in code"
+content_path = "./supabase/templates/magic_link.html"
+
+[auth.email.template.confirmation]
+subject = "Your JetLeg sign-in code"
+content_path = "./supabase/templates/confirmation.html"
 
 # Use a production-ready SMTP server
 # [auth.email.smtp]

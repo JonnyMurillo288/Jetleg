@@ -33,12 +33,43 @@ export type ZoneVerdict = {
   killedBy: string[];
 };
 
+/**
+ * A station's identity for caching: its id *and* where it is.
+ *
+ * The id alone was enough while there was one board. A community map
+ * (src/community/) swaps the station set at runtime, and two maps are free to
+ * reuse an id for a stop a few blocks apart — keyed by id, the second map
+ * would be judged against the first map's circle.
+ */
+const stationKey = (s: Station) => `${s.id}@${s.lon},${s.lat}`;
+
+const setKeys = new WeakMap<Station[], string>();
+/** One short string per station *set*, for caches that hold a whole set's result. */
+function stationSetKey(stations: Station[]): string {
+  let k = setKeys.get(stations);
+  if (k === undefined) {
+    // FNV-1a over every station's key. A count is not a signature: two maps
+    // with the same number of stations are the ordinary case, not a collision.
+    let h = 0x811c9dc5;
+    for (const s of stations) {
+      const key = stationKey(s);
+      for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 0x01000193);
+      h = Math.imul(h ^ 0x7c, 0x01000193);
+    }
+    k = `${stations.length}:${(h >>> 0).toString(36)}`;
+    setKeys.set(stations, k);
+  }
+  return k;
+}
+
 const zoneCache = new Map<string, Feature<Polygon>>();
 export function zoneOf(station: Station): Feature<Polygon> {
-  let z = zoneCache.get(station.id);
+  const key = stationKey(station);
+  let z = zoneCache.get(key);
   if (!z) {
     z = circleOf([station.lon, station.lat], ZONE_RADIUS_M, { steps: 64, units: 'meters' }) as Feature<Polygon>;
-    zoneCache.set(station.id, z);
+    if (zoneCache.size > 5_000) zoneCache.clear();
+    zoneCache.set(key, z);
   }
   return z;
 }
@@ -105,7 +136,7 @@ function verdictsFor(
   stations: Station[],
   strictness: Strictness,
 ): { yes: Set<string>; no: Set<string> } {
-  const key = `${sig}|${strictness}|${stations.length}`;
+  const key = `${sig}|${strictness}|${stationSetKey(stations)}`;
   let v = verdictCache.get(key);
   if (v) return v;
 
@@ -289,20 +320,33 @@ export function evaluate(
  */
 const nearestCache = new Map<string, Map<string, { distanceM: number; id: string }>>();
 
+/**
+ * Filled per station, on demand. It used to be filled once from whichever
+ * stations the first caller passed and then returned as-is — so a call made
+ * with only the surviving zones left every other station permanently missing,
+ * and a swapped board would have read the old board's distances.
+ */
 function nearestPerStation(layer: PoiLayer, stations: Station[]) {
   let m = nearestCache.get(layer.key);
-  if (m) return m;
+  if (!m) nearestCache.set(layer.key, (m = new Map()));
 
-  // Project the layer once, then walk stations against flat typed arrays.
-  const idx = layerIndex(layer);
-  m = new Map();
+  let idx: ReturnType<typeof layerIndex> | undefined;
+  const out = new Map<string, { distanceM: number; id: string }>();
   for (const s of stations) {
-    const [sx, sy] = toUTMCached([s.lon, s.lat]);
-    const n = nearestProjected(idx, sx, sy);
-    m.set(s.id, n ? { distanceM: n.distanceM, id: n.id } : { distanceM: Infinity, id: '' });
+    const key = stationKey(s);
+    let n = m.get(key);
+    if (!n) {
+      // Project the layer once, then walk stations against flat typed arrays.
+      idx ??= layerIndex(layer);
+      const [sx, sy] = toUTMCached([s.lon, s.lat]);
+      const hit = nearestProjected(idx, sx, sy);
+      n = hit ? { distanceM: hit.distanceM, id: hit.id } : { distanceM: Infinity, id: '' };
+      if (m.size > 20_000) m.clear();
+      m.set(key, n);
+    }
+    out.set(s.id, n);
   }
-  nearestCache.set(layer.key, m);
-  return m;
+  return out;
 }
 
 /**

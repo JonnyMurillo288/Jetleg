@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { startCheckout, restorePurchase } from '../payments/entitlement';
 import { PRODUCTS, type Product } from '../payments/products';
+import { useAccount } from '../community/account';
+import { AccountBox } from './AccountBox';
 
 /**
  * Shown in place of RoundGate when the device has no valid entitlement.
@@ -9,6 +11,7 @@ import { PRODUCTS, type Product } from '../payments/products';
  */
 export function PaywallModal(props: { onRestored: () => void }) {
   const [busy, setBusy] = useState<Product | 'restore' | null>(null);
+  const account = useAccount();
   const [error, setError] = useState<string | null>(null);
   const [showRestore, setShowRestore] = useState(false);
   const [email, setEmail] = useState('');
@@ -74,6 +77,12 @@ export function PaywallModal(props: { onRestored: () => void }) {
         </div>
       )}
       {restoreMsg && <p className="small muted">{restoreMsg}</p>}
+
+      <h3>Developer or tester?</h3>
+      <AccountBox account={account} reason="Sign in with the email you were given access on. Nothing to pay." />
+      {account.state === 'signedIn' && (
+        <p className="small muted">This account has no developer access, so it still needs a pass.</p>
+      )}
     </div>
   );
 }

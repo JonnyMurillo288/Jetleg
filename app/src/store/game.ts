@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { get as idbGet, set as idbSet, del as idbDel } from 'idb-keyval';
+import type { BoardStamp } from '../community/active';
 import type { AskEntry, GameSize, Role } from '../engine/types';
 import type { Strictness } from '../engine/candidates';
 
@@ -23,6 +24,13 @@ export type Round = {
   label: string;
   startedAt: number;
   endedAt?: number;
+  /**
+   * The community map this round was played on; absent for the built-in
+   * board. A round's log names stations by id, so a finished round shown
+   * against a different board would be scored against the wrong stations
+   * without any sign that it was.
+   */
+  board?: BoardStamp;
   /** Seeker: the ask log. Append-only; undo removes the last entry. */
   asks: AskEntry[];
   /** Hider: the station whose 500 m circle they claimed. */
@@ -81,6 +89,9 @@ type Settings = {
 
 type State = {
   role: Role;
+  /** The board currently loaded, stamped onto each round as it starts. */
+  board?: BoardStamp;
+  setBoard: (b: BoardStamp | undefined) => void;
   rounds: Round[];
   activeRoundId: string | null;
   settings: Settings;
@@ -228,6 +239,8 @@ export const useGame = create<State>()(
         set({ role, activeRoundId: active?.role === role ? active.id : null });
       },
 
+      setBoard: (board) => set({ board }),
+
       startRound: (label) => {
         const role = get().role;
         const n = get().rounds.filter((r) => r.role === role).length + 1;
@@ -237,6 +250,7 @@ export const useGame = create<State>()(
           label: label ?? `${role === 'seeker' ? 'Seeking' : 'Hiding'} round ${n}`,
           startedAt: Date.now(),
           asks: [],
+          board: get().board,
         };
         set({ rounds: [...get().rounds, round], activeRoundId: round.id });
       },
