@@ -74,7 +74,7 @@ export function AccountBox(props: { account: Account; reason?: string }) {
         </div>
       ) : (
         <>
-          <p className="small">We sent a six-digit code to {sent.email}.</p>
+          <p className="small">Enter the six-digit code for {sent.email}.</p>
           <div className="row">
             <input type="text" className="code grow" inputMode="numeric" autoComplete="one-time-code" value={code} maxLength={6} placeholder="Code" onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} />
             <button className="primary" disabled={busy || code.length < 6} onClick={() => run(() => verifyCode(sent.email, code, sent.kind))}>
@@ -84,7 +84,14 @@ export function AccountBox(props: { account: Account; reason?: string }) {
           </div>
         </>
       )}
-      <p className="muted small">No password. Browsing and playing maps never needs this.</p>
+      <p className="muted small">
+        No password. Browsing and playing maps never needs this.
+        {!sent && (
+          // Skips the email: where no mail can be sent yet, the testing code
+          // is the only code there is.
+          <> <button className="link" disabled={!email.trim()} onClick={() => { setError(null); setSent({ email, kind: 'email' }); }}>I have a testing code</button></>
+        )}
+      </p>
       {error && <p className="warntext">{error}</p>}
     </div>
   );

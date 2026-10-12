@@ -6,6 +6,7 @@
 // (`npm run build && npx vite preview --port 4310`).
 import { createClient } from '@supabase/supabase-js';
 import { chromium } from 'playwright';
+import { existsSync, readFileSync } from 'node:fs';
 
 const url = process.env.SUPABASE_URL || 'http://127.0.0.1:54321';
 const mailUrl = process.env.MAILPIT_URL || 'http://127.0.0.1:54324';
@@ -16,6 +17,13 @@ const anonKey =
 const serviceKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
+
+/** The local stack's testing code, if it has one: the same file `supabase start` reads. */
+const testCode = (() => {
+  if (process.env.TEST_LOGIN_CODE) return process.env.TEST_LOGIN_CODE;
+  const file = '../supabase/functions/.env';
+  return existsSync(file) ? readFileSync(file, 'utf8').match(/^TEST_LOGIN_CODE=(\S+)/m)?.[1] ?? '' : '';
+})();
 
 const fail: string[] = [];
 const check = (name: string, ok: boolean, detail?: unknown) => {
@@ -83,9 +91,54 @@ async function codeFor(email: string): Promise<string> {
   await admin.from('developers').delete().eq('email', devEmail);
   check('taken off the list, access ends at once', (await eligibility(dev.client))?.eligible === false);
 
+  // ---- the fixed testing code (0010, functions/test-login)
+  const tester = `tester-${run}@example.com`;
+  const stranger = `stranger-${run}@example.com`;
+  const tryCode = async (email: string, code: string) => {
+    const client = createClient(url, anonKey, { auth: { persistSession: false } });
+    const { data } = await client.functions.invoke<{ tokenHash?: string }>('test-login', { body: { email, code } });
+    if (!data?.tokenHash) return null;
+    const { data: session } = await client.auth.verifyOtp({ token_hash: data.tokenHash, type: 'email' });
+    return session.user ?? null;
+  };
+  if (!testCode) {
+    console.log('SKIP  testing-code checks: TEST_LOGIN_CODE is not set for this stack (supabase/functions/.env)');
+    await admin.from('test_logins').upsert({ email: tester });
+    check('with no code configured, the testing sign-in does nothing, even for a listed address', (await tryCode(tester, '000000')) === null);
+    await admin.from('test_logins').delete().eq('email', tester);
+  } else {
+    const wrong = testCode === '111111' ? '222222' : '111111';
+    check('the testing code does nothing for an address that is not listed', (await tryCode(stranger, testCode)) === null);
+    await admin.from('test_logins').upsert({ email: tester, note: 'verify:developer' });
+    check('a listed address is refused with the wrong code', (await tryCode(tester, wrong)) === null);
+    const user = await tryCode(tester, testCode);
+    check('a listed address signs in with the testing code, as a real, verified account', user?.email === tester && user.is_anonymous === false, user?.email);
+    const again = await tryCode(tester, testCode);
+    check('...the same account every time', !!user && again?.id === user.id);
+    const mail = await (await fetch(`${mailUrl}/api/v1/search?query=${encodeURIComponent('to:' + tester)}`)).json();
+    check('...and no email was sent for it', (mail.messages?.length ?? 0) === 0);
+
+    for (let i = 0; i < 10; i++) await tryCode(tester, wrong);
+    check('ten wrong codes lock the address, even against the right one', (await tryCode(tester, testCode)) === null);
+    check('...without affecting another listed address', await (async () => {
+      await admin.from('test_logins').upsert({ email: stranger });
+      const ok = (await tryCode(stranger, testCode))?.email === stranger;
+      await admin.from('test_logins').delete().eq('email', stranger);
+      return ok;
+    })());
+    await admin.from('test_logins').update({ failed_attempts: 0 }).eq('email', tester);
+    check('unlocking restores it', (await tryCode(tester, testCode))?.email === tester);
+    const peekTesters = await dev.client.from('test_logins').select('email');
+    check('the tester list is unreadable from the app', (peekTesters.data?.length ?? 0) === 0);
+    await admin.from('test_logins').delete().eq('email', tester);
+    check('taken off the list, the code stops working for it', (await tryCode(tester, testCode)) === null);
+  }
+
   // ---- the path a developer actually takes, in a browser
   const uiEmail = `uidev-${run}@example.com`;
   await admin.from('developers').upsert({ email: uiEmail, note: 'verify:developer (ui)' });
+  // With a testing code configured, the browser run uses it — no inbox involved.
+  if (testCode) await admin.from('test_logins').upsert({ email: uiEmail, note: 'verify:developer (ui)' });
 
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
@@ -117,9 +170,9 @@ async function codeFor(email: string): Promise<string> {
   check('a fresh device meets the paywall, with a way in for developers', /Unlock JetLeg SF/.test((await p.textContent('.sheet')) ?? '') && /Developer or tester/.test((await p.textContent('.sheet')) ?? ''));
 
   await p.fill('.accountbox input[type="email"]', uiEmail);
-  await click('Email me a code');
+  await click(testCode ? 'I have a testing code' : 'Email me a code');
   await p.waitForSelector('.accountbox input.code', { timeout: 15000 });
-  await p.fill('.accountbox input.code', await codeFor(uiEmail));
+  await p.fill('.accountbox input.code', testCode || (await codeFor(uiEmail)));
   await click('^Sign in$');
   // The paywall goes away on its own once the sign-in is seen to be entitled.
   const unlocked = await p.waitForFunction(() => !/Unlock JetLeg SF/.test(document.querySelector('.sheet')?.textContent || ''), null, { timeout: 20000 }).then(() => true, () => false);
@@ -144,6 +197,7 @@ async function codeFor(email: string): Promise<string> {
   await browser.close();
 
   for (const email of [uiEmail, `squat-${run}@example.com`]) await admin.from('developers').delete().eq('email', email);
+  await admin.from('test_logins').delete().eq('email', uiEmail);
   for (const id of [dev.id, other.id]) await admin.auth.admin.deleteUser(id);
 
   console.log(`\n${fail.length === 0 ? 'ALL PASS' : `${fail.length} FAILED: ${fail.join(', ')}`}`);

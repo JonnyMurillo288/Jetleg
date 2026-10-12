@@ -36,8 +36,10 @@ npm run build && npx vite preview --port 4310
 Open http://127.0.0.1:4310 and:
 
 1. **Play for free.** Tap *Start a new round* → the paywall → *Developer or
-   tester?* → enter your email → read the code at http://127.0.0.1:54324 (the
-   local mail catcher; nothing is really sent) → the paywall closes.
+   tester?* → enter your email → *I have a testing code* → type the testing
+   code → the paywall closes. (See "The testing code" below. Without one,
+   tap *Email me a code* and read it at http://127.0.0.1:54324, the local
+   mail catcher; nothing is really sent.)
 2. **Open the studio.** *Map* → *Map studio* (or go to `/#/maps`). On a
    laptop the tools sit beside the map. Open "Downtown sprint" — it appears
    on the map; it has two versions, a branch and a thread. Open "East of
@@ -53,14 +55,42 @@ Open http://127.0.0.1:4310 and:
    first — a round pins its board). You land back in the game, with the map
    centred on the new city.
 5. **Be someone else.** Open a private window, go to `/#/maps`, sign in as
-   `dummy-maya@jetleg.test` (code from the mail catcher again), like and
-   comment on your map, *Branch it*.
+   `dummy-maya@jetleg.test` with the same testing code, like and comment on
+   your map, *Branch it*.
 6. **Share locations.** In the two windows, tap *Game* in the game itself;
    create in one, join with the code in the other, set one to *Hider*. The
    seeker's teal dot appears on the hider's map.
 
 `npx tsx seed-community.ts --reset` removes the dummy content again.
 More detail, and the automated checks: `BACKEND_TESTING.md` §3b and §3c.
+
+### The testing code
+
+A fixed six-digit code that signs in listed addresses without any email.
+It has two halves, and does nothing unless both are in place:
+
+```bash
+# 1. the code, per environment (unset = the feature is off)
+echo 'TEST_LOGIN_CODE=123456' > supabase/functions/.env     # local; gitignored
+npx supabase stop && npx supabase start
+#    cloud: npx supabase secrets set TEST_LOGIN_CODE=123456 && npx supabase functions deploy test-login
+
+# 2. who may use it
+cd app
+npx tsx test-login.ts you@example.com
+npx tsx test-login.ts --list
+```
+
+Only listed addresses can be signed into with it; everyone else still needs
+their emailed code. Ten wrong codes lock an address until
+`npx tsx test-login.ts <email> --unlock`. The seed's dummy accounts are
+listed automatically. Developer access (`grant-developer.ts`) is separate:
+the testing code gets you signed in, developer access is what makes play free.
+
+**On a real project, treat the code as a shared password for those
+accounts.** Six digits is guessable in principle; the lockout is what stands
+in the way. Keep the list to test accounts, and unset the secret once real
+email is working if you no longer need it.
 
 After switching git branches while the local stack is running, restart the
 functions container (`docker restart supabase_edge_runtime_JetLeg`): `main`
@@ -76,7 +106,7 @@ In order. Each is a decision or a piece of setup, not just code.
    change. Expect conflicts in `app/src/store/game.ts` and
    `app/src/ui/RoundGate.tsx`.
 2. **Create the cloud Supabase project** and `npx supabase db push`
-   (migrations 0001–0009). In its dashboard, under Authentication:
+   (migrations 0001–0010) and `npx supabase functions deploy`. In its dashboard, under Authentication:
    - anonymous sign-ins **on**; "Confirm email" **on** — without it anyone can
      claim any address unverified, which would defeat both the publishing
      gate and developer access;

@@ -57,7 +57,7 @@ npm run verify:room    # verify-room.ts — game rooms + live sharing: who gets 
 npm run verify:room:ui # verify-room-ui.cjs — two browsers through the Game tab; asks the hider's map what it drew, and watches what the hider's browser sends
 npm run verify:community    # verify-community.ts — community maps: who may publish/like/comment, versions, branches, concurrent counts, the real emailed-code sign-in
 npm run verify:community:ui # verify-community-ui.cjs — two browsers in the map studio (#/maps): a station map, then a whole city (boundary, OSM stations + places, Voronoi built and hand-made), play it in the game, like, comment, branch. OSM is mocked.
-npm run verify:developer    # verify-developer.ts — developer list in the DB, then paywall -> sign in -> round starts, in a browser
+npm run verify:developer    # verify-developer.ts — developer list, the fixed testing code (listed addresses only, lockout), then paywall -> sign in -> round starts, in a browser
 TARGET=https://jetleg-sf.pages.dev/ npm run verify:tools   # any suite, against a deployment
 ```
 

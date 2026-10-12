@@ -80,17 +80,34 @@ export async function requestCode(email: string): Promise<{ ok: true; kind: Code
 export async function verifyCode(email: string, code: string, kind: CodeKind): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!supabase) return { ok: false, error: 'This build has no server configured.' };
   const before = (await supabase.auth.getSession()).data.session?.user?.id;
-  const { data, error } = await supabase.auth.verifyOtp({
-    email: email.trim().toLowerCase(),
-    token: code.trim(),
-    type: kind,
-  });
+  const address = email.trim().toLowerCase();
+  let { data, error } = await supabase.auth.verifyOtp({ email: address, token: code.trim(), type: kind });
+  if (error || !data.user) {
+    // Not the emailed code — it may be the fixed testing code, which only
+    // the server can judge (supabase/functions/test-login).
+    const viaTest = await redeemTestCode(address, code.trim());
+    if (viaTest) ({ data, error } = viaTest);
+  }
   if (error || !data.user) {
     return { ok: false, error: /expired|invalid/i.test(error?.message ?? '') ? 'That code is wrong or has expired.' : explain(error?.message) };
   }
   if (before && before !== data.user.id) await forgetDeviceIdentity();
   changed();
   return { ok: true };
+}
+
+/**
+ * The fixed testing code, for addresses listed as testers. The function
+ * answers with a one-time token only if the feature is on, the address is
+ * listed and the code matches; that token is then redeemed like any other,
+ * so Auth mints the session. Null means "not a testing code" — for any
+ * reason, which is all the server will say.
+ */
+async function redeemTestCode(email: string, code: string) {
+  if (!supabase) return null;
+  const { data, error } = await supabase.functions.invoke<{ tokenHash?: string }>('test-login', { body: { email, code } });
+  if (error || !data?.tokenHash) return null;
+  return supabase.auth.verifyOtp({ token_hash: data.tokenHash, type: 'email' });
 }
 
 /**

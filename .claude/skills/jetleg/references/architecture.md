@@ -489,6 +489,18 @@ expiry, so the existing offline cache carries them through a day with no
 signal and lapses within a month of being removed. The list is data, not
 migration: `npx tsx grant-developer.ts <email>` per environment.
 
+## The testing code (`0010_test_logins.sql`, `supabase/functions/test-login/`)
+
+A fixed sign-in code, so testing does not need an inbox — or a mail provider.
+Off unless the function's `TEST_LOGIN_CODE` secret is set, and then only for
+addresses in the service-role-only `test_logins` table (`app/test-login.ts`).
+Every refusal reads the same, so it cannot be used to discover testers; ten
+wrong codes lock an address. On a match the function returns a one-time Auth
+token, not a session — the app redeems it through the ordinary verify call
+(`account.ts`, tried only after the emailed-code check fails), so Auth mints
+the session as it would for anyone. `verify:developer` covers it, including
+that it is inert with no secret set.
+
 ## Payments (`supabase/functions/`, `app/src/payments/`)
 
 Phase 3 of `ROADMAP.md`: starting a round (including fully local, solo

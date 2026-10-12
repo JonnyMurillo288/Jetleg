@@ -166,7 +166,11 @@ answers the studio's OpenStreetMap requests from fixtures, so it never
 touches the public services; to exercise those for real, build a city by
 hand as `NEXT_STEPS.md` describes.
 
-Sign-in is an emailed six-digit code. Locally nothing is really sent: every
+To sign in without an inbox, set up the fixed testing code once —
+`NEXT_STEPS.md`, "The testing code" — then enter an address, tap *I have a
+testing code*, and type it.
+
+Otherwise sign-in is an emailed six-digit code. Locally nothing is really sent: every
 email lands in the mail catcher at **http://127.0.0.1:54324** — open it to
 read a code. The harnesses read it from the same place.
 

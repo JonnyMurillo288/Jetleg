@@ -11,9 +11,10 @@
 // Local stack by default; point SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY /
 // SUPABASE_ANON_KEY elsewhere to seed another project.
 //
-// The dummy accounts can be signed into from the app like any other: ask
-// for a code for e.g. dummy-maya@jetleg.test and read it from the local
-// mail catcher at http://127.0.0.1:54324.
+// The dummy accounts can be signed into from the app: enter e.g.
+// dummy-maya@jetleg.test, tap "I have a testing code", and type the stack's
+// TEST_LOGIN_CODE (see test-login.ts). Or ask for an emailed code and read
+// it from the local mail catcher at http://127.0.0.1:54324.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { readFileSync } from 'node:fs';
 import type { FeatureCollection } from 'geojson';
@@ -129,12 +130,15 @@ const rate = (who: SupabaseClient, mapId: string, value: 1 | -1) => who.rpc('rea
 
 (async () => {
   const removed = await removeDummies();
+  await admin.from('test_logins').delete().like('email', 'dummy-%@jetleg.test');
   if (process.argv.includes('--reset')) {
     console.log(`Removed ${removed} dummy account${removed === 1 ? '' : 's'} and everything they published, from ${url}.`);
     return;
   }
 
   const [maya, dev, rosa, theo] = await Promise.all(PEOPLE.map(person));
+  // So a dummy can be signed into with the fixed testing code, no inbox needed.
+  await admin.from('test_logins').upsert(PEOPLE.map((name) => ({ email: emailOf(name), note: 'seed-community dummy' })));
 
   const downtown = cut('Downtown sprint',
     'Everything east of Van Ness and north of 16th. Dense, walkable, over in ninety minutes. Good for a first game.',
