@@ -6,6 +6,7 @@ import {
   buildPeersFc,
   outgoingLocation,
   parseLocation,
+  pickFollowed,
   receive,
   type Peer,
 } from './share';
@@ -68,6 +69,21 @@ describe('peers', () => {
     expect(stale[0].stale).toBe(true);
     expect(agePeers(stale, STALE_AFTER_MS + 2)).toBe(stale);
     expect(agePeers(stale, DROP_AFTER_MS + 1)).toEqual([]);
+  });
+
+  it('follows a stable seeker on auto, the chosen one when picked, and nobody by hand', () => {
+    const zed = { ...msg, id: 'z', name: 'Zed' };
+    const amy = { ...msg, id: 'a', name: 'Amy' };
+    // Zed spoke last; auto must not care.
+    const peers = receive(receive([], amy, 1), zed, 2);
+    expect(pickFollowed(peers, 'auto')?.name).toBe('Amy');
+    expect(pickFollowed(receive(peers, amy, 3), 'auto')?.name).toBe('Amy');
+    expect(pickFollowed(peers, 'z')?.name).toBe('Zed');
+    expect(pickFollowed(peers, 'manual')).toBeNull();
+    expect(pickFollowed([], 'auto')).toBeNull();
+    // The chosen seeker left the game: fall back to someone, not to nothing.
+    expect(pickFollowed(peers.filter((p) => p.id !== 'z'), 'z')?.name).toBe('Amy');
+    expect(buildPeersFc(peers, 'z').features.map((f) => f.properties?.followed)).toEqual([false, true]);
   });
 
   it('draws one point per peer', () => {

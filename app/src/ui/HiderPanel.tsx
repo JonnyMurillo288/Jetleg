@@ -1,3 +1,4 @@
+import type { Peer } from '../live/share';
 import { useMemo, useState } from 'react';
 import type { GameData } from '../data/load';
 import { useGame, newAskId, type Round } from '../store/game';
@@ -29,8 +30,17 @@ export function HiderPanel(props: {
   origin: LngLat | null;
   hiderStation: Station | null;
   evaluated: Evaluated;
+  /** Where the seekers are: a followed live seeker, else the hand-placed pin. */
+  seekerPoint: LngLat | null;
+  /** Seekers sharing their position in this device's game. Empty outside one. */
+  liveSeekers: Peer[];
+  /** The live seeker `seekerPoint` is following, if any. */
+  followed: Peer | null;
+  /** 'auto', 'manual', or a seeker's id. */
+  follow: string;
+  onFollow: (choice: string) => void;
 }) {
-  const { data, round, origin, hiderStation, evaluated } = props;
+  const { data, round, origin, hiderStation, evaluated, liveSeekers, followed } = props;
   const [category, setCategory] = useState<Category>('matching');
   const [view, setView] = useState<'answer' | 'exposure'>('answer');
   const settings = useGame((s) => s.settings);
@@ -47,9 +57,10 @@ export function HiderPanel(props: {
   const thermo = useGame((s) => s.hiderThermo);
   const armThermo = useGame((s) => s.armHiderThermo);
   const clearThermo = useGame((s) => s.clearHiderThermo);
+  const placeThermo = useGame((s) => s.placeHiderThermo);
 
   const here = origin;
-  const seekers = round.seekerPin ?? null;
+  const seekers = props.seekerPoint;
 
   const drift = useMemo(() => {
     if (!here || !hiderStation) return null;
@@ -134,6 +145,33 @@ export function HiderPanel(props: {
         />
       ) : (
         <>
+          {liveSeekers.length > 0 && (
+            <div className="pad-x">
+              <div className="seekerlive">
+                <b>Seekers</b>
+                <span className="muted small">
+                  {followed
+                    ? <>Answers are measured from <b>{followed.name}</b>’s live position{followed.manual ? ' (hand-placed by them)' : ''}.</>
+                    : 'Answers are measured from the pin you placed, not from a live position.'}
+                </span>
+                <div className="chips inline">
+                  {[...liveSeekers].sort((a, b) => a.name.localeCompare(b.name)).map((p) => (
+                    <button key={p.id} className={`chip ${followed?.id === p.id ? 'on' : ''}`} onClick={() => props.onFollow(p.id)}>
+                      {p.name}{p.stale ? ' · quiet' : ''}
+                    </button>
+                  ))}
+                  <button className={`chip ${props.follow === 'manual' ? 'on' : ''}`} onClick={() => props.onFollow('manual')}>My pin</button>
+                </div>
+                {followed?.stale && (
+                  <span className="warntext">
+                    Nothing heard from {followed.name} for a while — this is their last known position, and may be out of date.
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {(liveSeekers.length === 0 || props.follow === 'manual') && (
           <div className="pad-x">
             <div className={`seekerpin ${armSeekerPin ? 'armed' : ''}`}>
               <span className="grow">
@@ -180,6 +218,7 @@ export function HiderPanel(props: {
               <p className="muted small">Tap an empty part of the map to place the seekers' pin.</p>
             )}
           </div>
+          )}
 
           <h3 className="pad-x">Answer assistant</h3>
           {!here && <p className="pad-x warntext">No GPS fix, so answers cannot be computed yet.</p>}
@@ -206,6 +245,8 @@ export function HiderPanel(props: {
               units={settings.units}
               onArm={armThermo}
               onClear={clearThermo}
+              live={followed}
+              onPlace={(which, ll) => { armThermo(which); placeThermo(ll); }}
             />
           )}
 
@@ -270,8 +311,11 @@ function ThermoRun(props: {
   units: 'imperial' | 'metric';
   onArm: (w: 'none' | 'start' | 'end') => void;
   onClear: () => void;
+  /** The live seeker being followed: their position can be taken as either end. */
+  live: Peer | null;
+  onPlace: (which: 'start' | 'end', ll: LngLat) => void;
 }) {
-  const { thermo, units, onArm, onClear } = props;
+  const { thermo, units, onArm, onClear, live } = props;
   const travelled = thermo.start && thermo.end ? metres(thermo.start, thermo.end) : null;
 
   return (
@@ -293,6 +337,17 @@ function ThermoRun(props: {
           <button className="link" onClick={onClear}>Clear</button>
         )}
       </div>
+      {live && (
+        /*
+         * A thermometer is "I was there, now I am here". With the seeker's
+         * phone reporting where it is, each end is one tap at the moment
+         * they say it — no reading a position off a message.
+         */
+        <div className="row">
+          <button onClick={() => props.onPlace('start', live.coords)}>Start = where {live.name} is now</button>
+          <button onClick={() => props.onPlace('end', live.coords)}>End = where {live.name} is now</button>
+        </div>
+      )}
       <p className="muted small">
         {travelled !== null
           ? `They travelled ${formatDistance(travelled, units)}. Hotter or colder cuts the board along the perpendicular of that line.`

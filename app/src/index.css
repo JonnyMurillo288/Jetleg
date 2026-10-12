@@ -599,3 +599,7 @@ a.buttonlink {
   .app.studio.collapsed .sheet { max-height: none; overflow-y: auto; }
   .app.studio.collapsed .sheet > :not(.sheet-handle) { display: block; }
 }
+
+/* The hider's seekers point, when it follows a live seeker. */
+.seekerlive { display: flex; flex-direction: column; gap: 4px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 8px; }
+.seekerlive .chips.inline { padding: 2px 0 0; display: flex; flex-wrap: wrap; gap: 6px; overflow: visible; }

@@ -54,7 +54,7 @@ npm run verify:sync   # verify-sync.ts — game-history sync against a live Supa
 npm run verify:results # verify-results.cjs — plays a real round, ends it, checks the Results tab against it
 npm run verify:payments # verify-payments.ts — entitlement RPC + RLS against a live Supabase (needs `supabase start` + `supabase functions serve`)
 npm run verify:room    # verify-room.ts — game rooms + live sharing: who gets on the channel, and that a hider's broadcast is refused (needs `supabase start`)
-npm run verify:room:ui # verify-room-ui.cjs — two browsers through the Game tab; asks the hider's map what it drew, and watches what the hider's browser sends
+npm run verify:room:ui # verify-room-ui.cjs — a hider and two seekers through the Game tab; asks the hider's map what it drew, watches what the hider's browser sends, and checks the hider's answers follow the chosen live seeker (that part needs TEST_LOGIN_CODE set, to start a round)
 npm run verify:community    # verify-community.ts — community maps: who may publish/like/comment, versions, branches, concurrent counts, the real emailed-code sign-in
 npm run verify:community:ui # verify-community-ui.cjs — two browsers in the map studio (#/maps): a station map, then a whole city (boundary, OSM stations + places, Voronoi built and hand-made), play it in the game, like, comment, branch. OSM is mocked.
 npm run verify:developer    # verify-developer.ts — developer list, the fixed testing code (listed addresses only, lockout), then paywall -> sign in -> round starts, in a browser

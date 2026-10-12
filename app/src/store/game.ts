@@ -122,6 +122,14 @@ type State = {
    * and a tap almost always claimed a station instead.
    */
   armSeekerPin: boolean;
+  /**
+   * Hider, in a game: which live seeker the answers are measured from —
+   * 'auto', a seeker's id, or 'manual' for the hand-placed pin. See
+   * live/share.ts `pickFollowed`. Only the choice is kept here; the
+   * position itself is never stored.
+   */
+  seekerFollow: string;
+  setSeekerFollow: (choice: string) => void;
   /** Collapsed sheet gives the map most of the screen. */
   sheetCollapsed: boolean;
   /**
@@ -228,6 +236,8 @@ export const useGame = create<State>()(
       manualLocation: { enabled: false },
       hiderPlaceTarget: 'me',
       armSeekerPin: false,
+      seekerFollow: 'auto',
+      setSeekerFollow: (seekerFollow) => set({ seekerFollow }),
       sheetCollapsed: false,
       hiderThermo: { arm: 'none' },
       measure: { tool: 'off', radiusM: 500, shapes: [], draft: [] },
@@ -294,7 +304,8 @@ export const useGame = create<State>()(
       setHiderStation: (hiderStationId) => patchRound(set, get, (r) => ({ ...r, hiderStationId })),
 
       setSeekerPin: (seekerPin) => {
-        set({ armSeekerPin: false });
+        // Placing a pin by hand is a decision to use it, over any live seeker.
+        set(seekerPin ? { armSeekerPin: false, seekerFollow: 'manual' } : { armSeekerPin: false });
         patchRound(set, get, (r) => ({ ...r, seekerPin }));
       },
 

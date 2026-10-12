@@ -23,7 +23,7 @@ import { GamePanel } from './ui/GamePanel';
 import { checkEntitlement, hasCachedValidEntitlement } from './payments/entitlement';
 import { loadGame, type LocalGame } from './live/room';
 import { useLiveLocations } from './live/useLiveLocations';
-import { buildPeersFc, type SharePosition } from './live/share';
+import { buildPeersFc, pickFollowed, type SharePosition } from './live/share';
 import { supabase } from './sync/client';
 import { applyMap, checkMap } from './community/board';
 import { enterBoard } from './engine/reset';
@@ -127,7 +127,20 @@ export default function App() {
   );
   // A hider's position is not handed to the live module at all.
   const live = useLiveLocations(game, role, role === 'seeker' ? sharePosition : null);
-  const peersFc = useMemo(() => buildPeersFc(live.peers), [live.peers]);
+  /**
+   * The hider's "seekers" point. In a game it is a live seeker's position;
+   * otherwise, or by choice, the pin placed by hand. Derived on every
+   * update rather than copied into the round, so a live position is never
+   * written to storage and the pin can never lag the dot it stands for.
+   */
+  const seekerFollow = useGame((s) => s.seekerFollow);
+  const setSeekerFollow = useGame((s) => s.setSeekerFollow);
+  const followed = useMemo(
+    () => (role === 'hider' ? pickFollowed(live.peers, seekerFollow) : null),
+    [role, live.peers, seekerFollow],
+  );
+  const seekerPoint: LngLat | undefined = followed?.coords ?? round?.seekerPin;
+  const peersFc = useMemo(() => buildPeersFc(live.peers, followed?.id), [live.peers, followed?.id]);
 
   // null = not checked yet, so the paywall never flashes before the (fast,
   // local) cache read resolves.
@@ -322,7 +335,8 @@ export default function App() {
         manualPoint={manual.enabled ? manual.coords ?? null : null}
         pins={
           role === 'hider'
-            ? { seekers: round?.seekerPin, start: hiderThermo.start, end: hiderThermo.end }
+            // While a live seeker is followed, their own dot is the pin.
+            ? { seekers: followed ? undefined : round?.seekerPin, start: hiderThermo.start, end: hiderThermo.end }
             : pins
         }
         hiderStation={hiderStation}
@@ -349,12 +363,15 @@ export default function App() {
           if (measure.tool !== 'off') { measureTap(ll); return; }
           if (role !== 'hider' || !round || round.endedAt) return;
           if (hiderThermo.arm !== 'none') { placeHiderThermo(ll); return; }
+          // While the seekers' point follows a live seeker, a stray tap must
+          // not quietly replace it with a hand-placed pin.
+          if (followed && !armSeekerPin) return;
           if (armSeekerPin || !manual.enabled) setSeekerPin(ll);
         }}
         onLongPress={(ll) => {
           if (!manual.enabled) return;
           if (role === 'hider' && hiderPlaceTarget === 'seekers') {
-            if (round && !round.endedAt) setSeekerPin(ll);
+            if (round && !round.endedAt && !followed) setSeekerPin(ll);
           } else {
             setManualCoords(ll);
           }
@@ -417,6 +434,11 @@ export default function App() {
             origin={origin}
             hiderStation={hiderStation}
             evaluated={evaluated}
+            seekerPoint={seekerPoint ?? null}
+            liveSeekers={live.peers}
+            followed={followed}
+            follow={seekerFollow}
+            onFollow={setSeekerFollow}
           />
         )}
       </div>

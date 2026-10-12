@@ -10,6 +10,7 @@ below was built and tested against the **local** Supabase stack only.
 |---|---|---|
 | Game rooms | Create a game, share its six-character code, join a team | **Game** button, GPS row |
 | Live seeker locations | Seekers' positions on everyone's map in the game; the hider sends nothing; nothing is stored | The map, once in a game |
+| Hider's seekers point | The hider's answers are measured from a live seeker's position, not a hand-dropped pin | Hider's Play tab, once in a game |
 | Map studio | Its own page, apart from the game: browse, look at, make and edit maps | **Map** tab → **Map studio**, or `/#/maps` |
 | Station maps | A different set of hiding stations on the San Francisco board | Studio → **New stations for San Francisco** |
 | Full city maps | A whole board for any city: boundary, stations, places, Voronoi cells — built with the pipeline's tools, in the browser | Studio → **New city** |
@@ -59,7 +60,10 @@ Open http://127.0.0.1:4310 and:
    your map, *Branch it*.
 6. **Share locations.** In the two windows, tap *Game* in the game itself;
    create in one, join with the code in the other, set one to *Hider*. The
-   seeker's teal dot appears on the hider's map.
+   seeker's dot appears on the hider's map. Start a round as the hider:
+   the answer assistant now measures from that seeker's live position (their
+   dot turns purple) instead of a pin you drop. With two seekers, pick which
+   one, or *My pin* to place it by hand as before.
 
 `npx tsx seed-community.ts --reset` removes the dummy content again.
 More detail, and the automated checks: `BACKEND_TESTING.md` §3b and §3c.

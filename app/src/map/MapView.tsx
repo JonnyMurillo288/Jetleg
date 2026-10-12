@@ -688,8 +688,10 @@ function installLayers(m: MLMap, data: GameData) {
     type: 'circle',
     source: 'peers',
     paint: {
-      'circle-radius': 8,
-      'circle-color': '#0d9488',
+      // The seeker the hider's answers are measured from wears the seekers'
+      // pin's own purple, a size up — it *is* that pin now.
+      'circle-radius': ['case', ['get', 'followed'], 10, 8],
+      'circle-color': ['case', ['get', 'followed'], '#7c3aed', '#0d9488'],
       'circle-opacity': ['case', ['get', 'stale'], 0.4, 1],
       'circle-stroke-color': '#fff',
       'circle-stroke-width': 3,

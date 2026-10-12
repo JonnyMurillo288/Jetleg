@@ -115,12 +115,33 @@ export function agePeers(peers: Peer[], now: number): Peer[] {
   return changed ? out : peers;
 }
 
-export function buildPeersFc(peers: Peer[]): FeatureCollection {
+/**
+ * Whose position the hider's answers are measured from.
+ *
+ * The hider used to drop a "seekers" pin by hand, from whatever the seekers
+ * told them. In a game the seekers' phones already say where they are, so
+ * the pin can simply *be* one of them. With two seekers apart, a question
+ * is asked from where its asker stands — so the hider can pick; left on
+ * 'auto', the choice is stable (first by name), never whoever spoke last,
+ * or the pin would hop between them every few seconds.
+ *
+ * 'manual' means the hand-placed pin, live seekers or not.
+ */
+export type FollowChoice = 'auto' | 'manual' | (string & {});
+
+export function pickFollowed(peers: Peer[], choice: FollowChoice): Peer | null {
+  if (choice === 'manual' || peers.length === 0) return null;
+  const chosen = choice === 'auto' ? undefined : peers.find((p) => p.id === choice);
+  // A chosen seeker who has left falls back to 'auto' rather than to nothing.
+  return chosen ?? [...peers].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))[0];
+}
+
+export function buildPeersFc(peers: Peer[], followedId?: string | null): FeatureCollection {
   return {
     type: 'FeatureCollection',
     features: peers.map((p) => ({
       type: 'Feature',
-      properties: { id: p.id, name: p.name, team: p.team, stale: p.stale, manual: p.manual },
+      properties: { id: p.id, name: p.name, team: p.team, stale: p.stale, manual: p.manual, followed: p.id === followedId },
       geometry: { type: 'Point', coordinates: p.coords },
     })),
   };

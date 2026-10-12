@@ -351,6 +351,26 @@ is removed after 2 min.
 HTTP endpoint and asserts no seeker receives it. `verify:room:ui` watches
 every frame and request the hider's browser sends for its own coordinates.
 
+### The hider's seekers point
+
+The hider's answer assistant measures from "where the seekers are", which
+was a pin dropped by hand (`Round.seekerPin`). In a game it is now a live
+seeker: `pickFollowed(peers, choice)` in `share.ts`, where the choice
+(`seekerFollow` in the store) is `'auto'`, a seeker's id, or `'manual'`.
+Auto is stable — first by name — never "whoever spoke last", or with two
+seekers the point would hop between them every few seconds. With two apart,
+the hider picks, because a question is asked from where its asker stands.
+
+`App.tsx` derives the point on every update (`followed?.coords ??
+round.seekerPin`) and hands it to `HiderPanel`; it is **not** copied into the
+round, so a live position is never written to storage and the pin cannot lag
+the dot it stands for. On the map the followed seeker's own dot is drawn in
+the pin's purple and the hand pin is not drawn. Placing a pin by hand
+switches to `'manual'`; while following, a plain map tap places nothing. A
+logged answer still records its origin in the ask log, as it always did. The
+thermometer's start and end can each be set to the followed seeker's
+position at the moment they call it.
+
 ### Map
 
 `peers-dot` / `peers-label`, from the `peers` source. They repaint in their
