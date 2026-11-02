@@ -165,6 +165,13 @@ band or an empty POI layer is a real signal, not noise to silence.
 - **The landing page's map is a picture, and it does not follow the board.**
   After changing the station set, `npm run shot:landing` (needs a preview
   server and a connection) and commit `public/landing-sf.jpg`.
+- **So are its product screenshots.** `public/marketing/*.jpg` (studio,
+  seeker's phone, round stats) come from `npm run shot:marketing`, which
+  also writes full-size PNGs to the git-ignored `Marketing/` folder. Retake
+  them after a visible change to the studio, the seeker panel or the stats
+  page. The site's copies stay tracked: ignored, a clean-checkout deploy
+  would serve the app's HTML in their place with a 200. The landing copy may
+  only claim what ships; `Marketing/website-copy.md` maps each claim to code.
 - **MapLibre's canvas container is zero pixels tall** — the canvas overflows
   it. Its top-left is right for turning a pointer into a map point, but a
   harness that sizes anything by `getCanvasContainer()` draws a flat line.

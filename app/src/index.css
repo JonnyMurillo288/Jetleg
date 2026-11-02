@@ -689,71 +689,7 @@ a.buttonlink {
 .prose ul { padding-left: 20px; margin: 6px 0; }
 .prose li { margin: 6px 0; }
 
-/* ---------------------------------------------------------------- landing */
-
-.hero { position: relative; background: #e2e8f0; overflow: hidden; }
-.hero img {
-  display: block;
-  width: 100%;
-  height: 46dvh;
-  min-height: 240px;
-  object-fit: cover;
-}
-/* Always the same dark veil and white type: it sits on a picture, not on the theme. */
-.hero-text {
-  position: absolute;
-  inset: auto 0 0 0;
-  padding: 56px 16px 14px;
-  color: #fff;
-  background: linear-gradient(to top, rgba(15, 23, 42, .88), rgba(15, 23, 42, .55) 55%, rgba(15, 23, 42, 0));
-}
-.hero-text h1 { margin: 0; font-size: 34px; line-height: 1.1; letter-spacing: -.01em; }
-.hero-text p { margin: 4px 0 0; max-width: 34ch; font-size: 15px; }
-.hero-caption {
-  position: absolute;
-  top: calc(env(safe-area-inset-top) + 10px);
-  left: 10px;
-  background: rgba(255, 255, 255, .9);
-  color: #0f172a;
-  border-radius: 999px;
-  padding: 3px 10px;
-  font-size: 12px;
-}
-
-.navgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-a.navcard {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-height: 76px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--panel);
-  color: var(--ink);
-  text-decoration: none;
-}
-a.navcard strong { font-size: 16px; }
-a.navcard span { font-size: 12.5px; color: var(--muted); }
-a.navcard.primary { grid-column: 1 / -1; background: var(--accent); border-color: var(--accent); color: #fff; }
-a.navcard.primary span { color: rgba(255, 255, 255, .9); }
-/* An odd one out at the end takes the whole row rather than leaving a hole beside it. */
-a.navcard:not(.primary):last-child:nth-child(even) { grid-column: 1 / -1; }
-.pagefoot { display: flex; gap: 18px; justify-content: center; margin-top: 22px; font-size: 14px; }
-
-@media (prefers-color-scheme: dark) {
-  a.navcard.primary, a.navcard.primary span { color: #111827; }
-}
-
-/* On a desk: the board down the left, the way in on the right. */
-@media (min-width: 900px) {
-  .page.landing { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(360px, 1fr); overflow: hidden; }
-  .landing .hero img { height: 100dvh; }
-  .landing .hero-text { padding: 80px 28px 26px; }
-  .landing .hero-text h1 { font-size: 48px; }
-  .landing .hero-text p { font-size: 17px; }
-  .landing .page-body { align-self: center; width: 100%; max-height: 100dvh; overflow-y: auto; padding: 28px; }
-}
+/* The landing page has its own stylesheet: pages/landing.css. */
 
 /* ------------------------------------------------------------- start a game */
 

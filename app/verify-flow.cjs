@@ -117,9 +117,9 @@ const gameReady = async (p) => {
   // ------------------------------------------------------------- landing
   await p.goto(origin, { waitUntil: 'domcontentloaded' });
   await p.waitForSelector('.landing', { timeout: 20000 });
-  await p.waitForFunction(() => document.querySelector('.hero img')?.complete, null, { timeout: 20000 });
+  await p.waitForFunction(() => document.querySelector('.lp-hero-img')?.complete, null, { timeout: 20000 });
   const hero = await p.evaluate(() => {
-    const img = document.querySelector('.hero img');
+    const img = document.querySelector('.lp-hero-img');
     const r = img.getBoundingClientRect();
     return { natural: [img.naturalWidth, img.naturalHeight], shown: [Math.round(r.width), Math.round(r.height)], src: img.currentSrc };
   });
@@ -128,10 +128,30 @@ const gameReady = async (p) => {
   const heroType = (await p.request.get(hero.src)).headers()['content-type'];
   check('that picture is served as an image', /^image\/jpeg/.test(heroType || ''), heroType);
   check('landing draws no live map', (await p.$('.maplibregl-canvas')) === null);
-  const cards = await p.evaluate(() => [...document.querySelectorAll('.navgrid a, .pagefoot a')].map((a) => [a.querySelector('strong')?.textContent ?? a.textContent, a.getAttribute('href')]));
-  check('landing links to every page', JSON.stringify(cards) === JSON.stringify([
-    ['Start a game', '#/start'], ['Explore maps', '#/maps'], ['Create a map', '#/maps/new'], ['Game stats', '#/stats'], ['About', '#/about'], ['Privacy', '#/privacy'],
-  ]), cards);
+  const ctas = await p.evaluate(() => [...document.querySelectorAll('.lp-hero .lp-ctas a')].map((a) => [a.textContent.trim(), a.getAttribute('href')]));
+  check('the hero offers play and create, side by side', JSON.stringify(ctas) === JSON.stringify([['Explore games', '#/start'], ['Create a map', '#/maps/new']]), ctas);
+  const hrefs = await p.evaluate(() => [...new Set([...document.querySelectorAll('.landing a')].map((a) => a.getAttribute('href')))]);
+  const pages = ['#/start', '#/maps', '#/maps/new', '#/stats', '#/about', '#/privacy'];
+  check('landing links to every page', pages.every((h) => hrefs.includes(h)), hrefs);
+
+  // The product screenshots: each one decoded, at its real size, served as a picture.
+  const shotsShown = await p.evaluate(async () => {
+    const imgs = [...document.querySelectorAll('.landing img[loading="lazy"]')];
+    for (const i of imgs) i.loading = 'eager';
+    await Promise.all(imgs.map((i) => (i.complete ? 0 : new Promise((r) => { i.onload = i.onerror = r; }))));
+    return imgs.map((i) => ({ src: i.currentSrc, natural: i.naturalWidth, width: i.getAttribute('width') }));
+  });
+  check('every screenshot on the landing page decodes at its stated size', shotsShown.length === 4 && shotsShown.every((i) => String(i.natural) === i.width), shotsShown);
+  const shotTypes = await Promise.all(shotsShown.map(async (i) => (await p.request.get(i.src)).headers()['content-type']));
+  check('…and each is served as an image', shotTypes.every((t) => /^image\/jpeg/.test(t || '')), shotTypes);
+
+  // Map cards are the server's, never the page's own.
+  await p.waitForFunction(() => document.querySelector('.lp-mapcard') || /Yours could be the first|in the map studio/.test(document.querySelector('.lp-empty')?.textContent ?? ''), null, { timeout: 15000 }).catch(() => {});
+  const mapCards = await p.evaluate(() => [...document.querySelectorAll('.lp-mapcard strong')].map((e) => e.textContent));
+  if (serverMaps) {
+    const names = new Set(serverMaps.map((m) => m.name));
+    check('the landing page’s map cards are published maps', mapCards.length === Math.min(3, serverMaps.length) && mapCards.every((n) => names.has(n)), mapCards);
+  } else check('with no server, the landing page shows no map cards', mapCards.length === 0, mapCards);
   await p.screenshot({ path: path.join(shots, 'landing-phone.png') });
 
   for (const [label, hash, sel, expect] of [
@@ -146,10 +166,10 @@ const gameReady = async (p) => {
     await p.waitForSelector('.landing');
   }
 
-  await clickText(p, '^Explore maps', '.landing a');
+  await clickText(p, '^Explore community maps', '.landing a');
   await hashIs(p, '#/maps');
   await gameReady(p);
-  check('"Explore maps" opens the studio, and its map draws the board', /Community maps/.test(await text(p, '.community h2')) && (await mapDrew(p)).zones > 0, await mapDrew(p));
+  check('"Explore community maps" opens the studio, and its map draws the board', /Community maps/.test(await text(p, '.community h2')) && (await mapDrew(p)).zones > 0, await mapDrew(p));
   await clickText(p, 'Home', '.topbar a');
   await p.waitForSelector('.landing');
   await clickText(p, '^Create a map', '.landing a');
@@ -358,14 +378,14 @@ const gameReady = async (p) => {
   await p.setViewportSize({ width: 1280, height: 800 });
   await p.goto(origin, { waitUntil: 'domcontentloaded' });
   await p.waitForSelector('.landing');
-  await p.waitForFunction(() => document.querySelector('.hero img')?.complete);
+  await p.waitForFunction(() => document.querySelector('.lp-hero-img')?.complete);
   const desk = await p.evaluate(() => {
-    const hero = document.querySelector('.hero').getBoundingClientRect();
-    const nav = document.querySelector('.navgrid').getBoundingClientRect();
-    return { hero: [Math.round(hero.width), Math.round(hero.height)], navLeft: Math.round(nav.left), scrollW: document.documentElement.scrollWidth };
+    const hero = document.querySelector('.lp-hero').getBoundingClientRect();
+    const cta = document.querySelector('.lp-hero .lp-btn').getBoundingClientRect();
+    return { hero: Math.round(hero.width), ctaBottom: Math.round(cta.bottom), scrollW: document.documentElement.scrollWidth };
   });
-  check('on a wide screen the picture sits beside the menu, with no sideways scroll', desk.navLeft >= desk.hero[0] && desk.hero[1] >= 780 && desk.scrollW <= 1280, desk);
-  check('with a round on the device, the landing page still leads with “Start a game”', /Start a game/.test(await text(p, '.navcard.primary')));
+  check('on a wide screen the picture spans the page, its buttons above the fold, with no sideways scroll', desk.hero === 1280 && desk.ctaBottom <= 800 && desk.scrollW <= 1280, desk);
+  check('with no round in progress, the landing page leads with “Explore games”', /Explore games/.test(await text(p, '.lp-hero .lp-btn.primary')));
   await p.screenshot({ path: path.join(shots, 'landing-desk.png') });
 
   check('no console or page errors the whole run', errors.length === 0, errors.slice(0, 5));

@@ -1,0 +1,199 @@
+/* The landing page: the front door and the case for playing (Landing.tsx).
+   Kept apart from index.css, which is the game's. */
+
+.landing { --lp-veil: 15, 23, 42; }
+.landing .grow { flex: 1; }
+
+/* ------------------------------------------------------------------ hero */
+
+.lp-hero { position: relative; background: #e2e8f0; overflow: hidden; color: #fff; }
+.lp-hero-img {
+  display: block;
+  width: 100%;
+  height: 78dvh;
+  min-height: 520px;
+  max-height: 900px;
+  object-fit: cover;
+}
+/* Always the same dark veil and white type: they sit on a picture, not on the theme. */
+.lp-nav {
+  position: absolute;
+  inset: 0 0 auto 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: calc(env(safe-area-inset-top) + 10px) 12px 26px;
+  background: linear-gradient(to bottom, rgba(var(--lp-veil), .75), rgba(var(--lp-veil), 0));
+}
+.lp-nav a { color: #fff; text-decoration: none; font-size: 14px; font-weight: 600; padding: 8px; border-radius: 8px; }
+.lp-nav a:hover { background: rgba(255, 255, 255, .14); }
+.lp-nav a.lp-brand { font-size: 18px; font-weight: 800; letter-spacing: -.01em; padding-left: 4px; }
+.lp-hero-text {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 120px 16px 22px;
+  background: linear-gradient(to top, rgba(var(--lp-veil), .94), rgba(var(--lp-veil), .7) 55%, rgba(var(--lp-veil), 0));
+}
+.lp-eyebrow { margin: 0 0 6px; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #fcd34d; }
+.lp-hero-text h1 { margin: 0; font-size: 36px; line-height: 1.05; letter-spacing: -.02em; max-width: 16ch; }
+.lp-lede { margin: 10px 0 0; max-width: 46ch; font-size: 15.5px; line-height: 1.5; color: rgba(255, 255, 255, .92); }
+.lp-resume { margin: 8px 0 0; font-size: 13px; color: rgba(255, 255, 255, .85); }
+
+/* --------------------------------------------------------------- buttons */
+
+.lp-ctas { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+.lp-ctas.center { justify-content: center; }
+.page a.lp-btn, a.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  padding: 0 20px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  font-weight: 650;
+  font-size: 15px;
+  text-decoration: none;
+}
+.page a.lp-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.page a.lp-btn.light { background: rgba(255, 255, 255, .95); border-color: transparent; color: #0f172a; }
+.lp-section .lp-btn { margin-top: 18px; }
+.lp-section .lp-ctas .lp-btn { margin-top: 0; }
+
+/* -------------------------------------------------------------- sections */
+
+.lp-section { padding: 48px 0; border-top: 1px solid var(--line); }
+.lp-section.alt { background: var(--panel); }
+.lp-wrap { max-width: 68rem; margin: 0 auto; padding: 0 16px; }
+.lp-narrow { max-width: 44rem; text-align: center; }
+.lp-section h2, .lp-final h2 { margin: 0; font-size: 28px; line-height: 1.15; letter-spacing: -.015em; }
+.lp-kicker { margin: 0 0 6px; font-size: 12.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--accent); }
+.lp-intro { margin: 10px 0 0; max-width: 60ch; font-size: 16px; line-height: 1.55; color: var(--muted); }
+.lp-narrow .lp-intro { margin-left: auto; margin-right: auto; }
+
+.lp-steps { list-style: none; margin: 24px 0 0; padding: 0; display: grid; gap: 12px; }
+.lp-steps li, .lp-grid li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+}
+.lp-steps strong, .lp-grid strong { font-size: 16.5px; }
+.lp-steps span:last-child, .lp-grid span { color: var(--muted); line-height: 1.5; }
+.lp-num { font-size: 13px; font-weight: 800; color: var(--accent); letter-spacing: .05em; }
+
+.lp-grid { list-style: none; margin: 26px 0 22px; padding: 0; display: grid; gap: 12px; }
+.lp-section.alt .lp-grid li, .lp-section.alt .lp-cards .lp-mapcard { background: var(--bg); }
+
+.lp-points { list-style: none; margin: 20px 0 0; padding: 0; display: grid; gap: 14px; }
+.lp-points li { display: flex; flex-direction: column; gap: 3px; padding-left: 14px; border-left: 3px solid var(--accent); }
+.lp-points strong { font-size: 16px; }
+.lp-points span { color: var(--muted); line-height: 1.5; }
+
+.lp-ticks { margin: 16px 0; padding: 0; list-style: none; display: grid; gap: 9px; }
+.lp-ticks li { position: relative; padding-left: 26px; line-height: 1.45; }
+.lp-ticks li::before { content: '✓'; position: absolute; left: 2px; top: 0; color: var(--yes); font-weight: 800; }
+
+/* ------------------------------------------------------------- map cards */
+
+.lp-cards { list-style: none; margin: 24px 0 22px; padding: 0; display: grid; gap: 12px; }
+.page a.lp-mapcard {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  height: 100%;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  color: var(--ink);
+  text-decoration: none;
+}
+.lp-mapcard strong { font-size: 17px; }
+.lp-facts { font-size: 13px; color: var(--muted); }
+.lp-different { margin-top: 6px; line-height: 1.5; }
+.lp-different em { display: block; font-style: normal; font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.page .lp-view { margin-top: auto; padding-top: 10px; color: var(--accent); font-weight: 650; }
+.lp-empty { margin: 22px 0; }
+
+.lp-feature-card {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  max-width: 46rem;
+}
+.lp-feature-card header { display: flex; flex-direction: column; gap: 2px; }
+.lp-feature-card h3 { margin: 0; font-size: 20px; }
+
+/* ----------------------------------------------------------- screenshots */
+
+.lp-shots { display: grid; gap: 22px; margin-top: 26px; }
+.lp-shots figure, .lp-phone { margin: 0; }
+.lp-shots img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, .12);
+}
+figure figcaption { margin-top: 10px; font-size: 14px; line-height: 1.5; color: var(--muted); }
+figure figcaption strong { color: var(--ink); }
+
+.lp-split { display: grid; gap: 30px; align-items: center; }
+.lp-phone { max-width: 300px; justify-self: center; text-align: center; }
+.lp-phone img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 30px;
+  border: 8px solid #0f172a;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, .25);
+}
+
+/* ------------------------------------------------------------ the finish */
+
+.lp-slogan { margin: 18px 0 0; font-size: 20px; font-weight: 800; color: var(--accent); }
+.lp-final { padding: 56px 0 60px; background: #0f172a; color: #fff; text-align: center; }
+.lp-final p { margin: 10px 0 0; font-size: 17px; color: rgba(255, 255, 255, .85); }
+.pagefoot { display: flex; gap: 18px; justify-content: center; font-size: 14px; }
+.landing > .pagefoot { padding: 20px 0 calc(24px + env(safe-area-inset-bottom)); margin: 0; }
+
+@media (prefers-color-scheme: dark) {
+  .page a.lp-btn.primary { color: #111827; }
+  .lp-phone img { border-color: #334155; }
+  .lp-final { background: #020617; }
+}
+
+/* ------------------------------------------------------------ wider screens */
+
+@media (min-width: 700px) {
+  .lp-hero-text { padding: 160px 32px 40px; }
+  .lp-hero-text h1 { font-size: 52px; }
+  .lp-lede { font-size: 17px; }
+  .lp-nav { padding-left: 24px; padding-right: 24px; }
+  .lp-section { padding: 72px 0; }
+  .lp-wrap { padding: 0 28px; }
+  .lp-section h2, .lp-final h2 { font-size: 36px; }
+  .lp-steps { grid-template-columns: repeat(2, 1fr); }
+  .lp-grid { grid-template-columns: repeat(2, 1fr); }
+  .lp-cards { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+}
+
+@media (min-width: 1000px) {
+  .lp-hero-text { padding-left: max(28px, calc((100% - 68rem) / 2 + 28px)); }
+  .lp-hero-text h1 { font-size: 64px; }
+  .lp-steps { grid-template-columns: repeat(4, 1fr); }
+  .lp-grid { grid-template-columns: repeat(3, 1fr); }
+  .lp-shots { grid-template-columns: 1fr 1fr; }
+  .lp-split { grid-template-columns: 340px 1fr; gap: 64px; }
+  .lp-split.reverse { grid-template-columns: 1fr 340px; }
+  .lp-phone { max-width: 320px; }
+}

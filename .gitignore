@@ -18,3 +18,8 @@ pipeline/input/gtfs/*.zip
 
 # Password
 supabase-password.txt
+
+# Marketing plan, copy and full-size screenshots — local working material.
+# The pictures the landing page actually serves live in app/public/marketing/
+# and stay tracked, or a deploy from a clean checkout would ship without them.
+Marketing/

@@ -68,6 +68,9 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         // jpg: the landing page's picture of the board.
         globPatterns: ['**/*.{js,css,html,geojson,json,png,svg,jpg}'],
+        // The landing page's product screenshots: worth the network when someone
+        // is reading about the app, not ~700 KB on every phone that installs it.
+        globIgnores: ['marketing/**'],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/tiles\.openfreemap\.org\/.*/i,
