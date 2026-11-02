@@ -42,7 +42,6 @@ function shippedBoard(): GameData {
     bbox: read('bbox.json'),
     stations: read<{ stations: Station[] }>('stations.json').stations,
     zones: read('zones.geojson'),
-    districts: read('districts.geojson'),
     layers,
     voronoi,
   };
@@ -90,7 +89,7 @@ describe('a full city pack', () => {
       { id: 'r', questionId: QUESTIONS.find((q) => q.category === 'radar' && !!q.distanceM && q.distanceM >= 2000)!.id, askedAt: 0, origin, answer: { kind: 'yesno', value: 'yes' } },
       { id: 't', questionId: pick('thermometer').id, askedAt: 0, origin, destination: [-122.44, 37.76], answer: { kind: 'hotterColder', value: 'hotter' } },
     ];
-    for (const strictness of ['conservative', 'strict'] as const) {
+    for (const strictness of ['loose', 'strict'] as const) {
       for (const n of [1, 4]) {
         enterBoard(base.bbox);
         const a = evaluate(base.stations, asks.slice(0, n), QUESTIONS_BY_ID, base.layers, base.boundary, strictness);
@@ -125,7 +124,7 @@ describe('a full city pack', () => {
 
     const board = applyMap(base, pack);
     expect(board.bbox[0]).toBeGreaterThan(150);
-    expect(board.districts.features).toEqual([]);
+    expect('districts' in board).toBe(false);
     expect(board.layers.parks.features).toEqual([]);
     expect(board.layers.libraries.cells?.features).toHaveLength(3);
     expect(board.stations).toHaveLength(4);

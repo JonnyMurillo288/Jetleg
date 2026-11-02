@@ -132,7 +132,6 @@ export function applyMap(base: GameData, map: MapFile): GameData {
   return {
     boundary,
     bbox: turfBbox(boundary) as [number, number, number, number],
-    districts: EMPTY,
     layers,
     voronoi,
     ...stationsOf(map),

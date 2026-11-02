@@ -97,18 +97,18 @@ async function player(browser, at, target) {
   }
 
   // ---- seeker creates the game
-  await clickText(seeker.p, '^Game', '.gpsrow button');
+  await seeker.p.click('.gamebtn');
   await seeker.p.fill('.gameroom .field input', 'Sam');
   await seeker.p.fill('.gameroom input[placeholder="Your team\'s name"]', 'Blue');
   await clickText(seeker.p, 'Create game');
   await seeker.p.waitForSelector('.gamecode strong', { timeout: 15000 });
   const code = (await seeker.p.textContent('.gamecode strong')).trim();
   check('creating a game shows its code', /^[A-HJ-NP-Z2-9]{6}$/.test(code), code);
-  check('the code stays visible in the top bar', (await seeker.p.textContent('.gpsrow')).includes(code));
+  check('the code stays visible in the top bar', (await seeker.p.textContent('.topbar')).includes(code));
 
   // ---- hider switches role, then joins with the code
   await clickText(hider.p, '^Hider$', '.topbar button');
-  await clickText(hider.p, '^Game', '.gpsrow button');
+  await hider.p.click('.gamebtn');
   await hider.p.fill('.gameroom .field input', 'Hana');
   await hider.p.fill('.gameroom input.code', code.toLowerCase());
   await clickText(hider.p, 'Find game');
@@ -133,7 +133,7 @@ async function player(browser, at, target) {
   await hider.p.evaluate(() => document.querySelector('.sheet-handle').click());
 
   // ---- a second seeker joins the first one's team
-  await clickText(seeker2.p, '^Game', '.gpsrow button');
+  await seeker2.p.click('.gamebtn');
   await seeker2.p.fill('.gameroom .field input', 'Alex');
   await seeker2.p.fill('.gameroom input.code', code);
   await clickText(seeker2.p, 'Find game');
@@ -198,7 +198,7 @@ async function player(browser, at, target) {
     await hider.p.waitForSelector('.seekerpin', { timeout: 8000 });
     check('“My pin” goes back to the hand-placed pin', /measured from the pin you placed/.test(await hider.p.textContent('.seekerlive')) && (await srcOf('peers')).every(f => !f.followed));
     await clickText(hider.p, '^Alex', '.seekerlive .chip');
-    await clickText(hider.p, '^Game', '.gpsrow button');
+    await hider.p.click('.gamebtn');
   }
 
   // ---- and nothing of the hider goes anywhere. Two heartbeats' worth of time.
@@ -225,12 +225,12 @@ async function player(browser, at, target) {
   check('leaving returns to the lobby', true);
   await hider.p.reload({ waitUntil: 'domcontentloaded' });
   await hider.p.waitForFunction(() => window.__mapReady === true, null, { timeout: 45000 });
-  check('...and stays left after a reload', !(await hider.p.textContent('.gpsrow')).includes(code));
+  check('...and stays left after a reload', !(await hider.p.textContent('.topbar')).includes(code));
 
   await seeker.p.reload({ waitUntil: 'domcontentloaded' });
   await seeker.p.waitForFunction(() => window.__mapReady === true, null, { timeout: 45000 });
-  await seeker.p.waitForFunction((c) => document.querySelector('.gpsrow')?.textContent.includes(c), code, { timeout: 10000 }).catch(() => {});
-  check('a reload keeps a player in their game', (await seeker.p.textContent('.gpsrow')).includes(code));
+  await seeker.p.waitForFunction((c) => document.querySelector('.topbar')?.textContent.includes(c), code, { timeout: 10000 }).catch(() => {});
+  check('a reload keeps a player in their game', (await seeker.p.textContent('.topbar')).includes(code));
 
   check('no page errors', seeker.errors.length + hider.errors.length + seeker2.errors.length === 0, JSON.stringify([...seeker.errors, ...hider.errors, ...seeker2.errors]));
   if (TEST_CODE) {

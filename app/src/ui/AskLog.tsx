@@ -80,7 +80,7 @@ export function AskLog(props: { data: GameData; round: Round; evaluated: Evaluat
         })}
       </ul>
 
-      <button className="link danger" onClick={endRound}>End this round</button>
+      <button className="link danger" onClick={endRound}>End game</button>
     </div>
   );
 }

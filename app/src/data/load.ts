@@ -11,7 +11,6 @@ export type GameData = {
   bbox: [number, number, number, number];
   stations: Station[];
   zones: FeatureCollection;
-  districts: FeatureCollection;
   layers: Record<string, PoiLayer>;
   /**
    * Precomputed Voronoi cells per point layer, keyed by the same layer key.
@@ -42,12 +41,11 @@ export { LAYER_DEFS, VORONOI_KEYS } from './layers';
 import { LAYER_DEFS, VORONOI_KEYS } from './layers';
 
 export async function loadGameData(): Promise<GameData> {
-  const [boundaryFc, bbox, stationsDoc, zones, districts] = await Promise.all([
+  const [boundaryFc, bbox, stationsDoc, zones] = await Promise.all([
     json<FeatureCollection>('boundary.geojson'),
     json<[number, number, number, number]>('bbox.json'),
     json<{ stations: Station[] }>('stations.json'),
     json<FeatureCollection>('zones.geojson'),
-    json<FeatureCollection>('districts.geojson'),
   ]);
 
   const loaded = await Promise.all(
@@ -85,7 +83,6 @@ export async function loadGameData(): Promise<GameData> {
     bbox,
     stations: stationsDoc.stations,
     zones,
-    districts,
     layers,
     voronoi,
   };

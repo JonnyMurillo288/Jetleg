@@ -15,7 +15,7 @@ import { Map as MLMap, NavigationControl, setWorkerUrl, type GeoJSONSource, type
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import circleOf from '@turf/circle';
 import { featureCollection } from '@turf/helpers';
-import type { FeatureCollection } from 'geojson';
+import type { Feature, FeatureCollection, MultiPolygon, Polygon } from 'geojson';
 import type { GameData } from '../data/load';
 import type { Fix } from '../location/useLocation';
 import type { LngLat, Station } from '../engine/types';
@@ -37,6 +37,8 @@ const LABEL_FONT = ['Noto Sans Regular'];
 type Props = {
   data: GameData;
   aliveIds: Set<string>;
+  /** Loose elimination: what is left of each zone an answer has cut into. Drawn in place of its circle. */
+  zoneCuts: Map<string, Feature<Polygon | MultiPolygon>>;
   resolved: ResolvedAsk[];
   hiddenOverlays: string[];
   visibleLayers: string[];
@@ -232,6 +234,7 @@ export function MapView(props: Props) {
   }, [
     props.data,
     props.aliveIds,
+    props.zoneCuts,
     props.resolved,
     props.hiddenOverlays.join(','),
     props.visibleLayers.join(','),
@@ -395,7 +398,6 @@ function src(m: MLMap, id: string, data: any = EMPTY) {
 
 function installLayers(m: MLMap, data: GameData) {
   src(m, 'boundary', featureCollection([data.boundary as any]));
-  src(m, 'districts', data.districts);
   src(m, 'zones', data.zones);
   src(m, 'stations', EMPTY);
   src(m, 'overlays', EMPTY);
@@ -425,20 +427,6 @@ function installLayers(m: MLMap, data: GameData) {
     paint: { 'line-color': '#1f2937', 'line-width': 2, 'line-opacity': 0.75 },
   });
 
-  m.addLayer({
-    id: 'districts-line',
-    type: 'line',
-    source: 'districts',
-    layout: { visibility: 'none' },
-    paint: { 'line-color': '#7c3aed', 'line-width': 1.4, 'line-dasharray': [3, 2], 'line-opacity': 0.85 },
-  });
-  m.addLayer({
-    id: 'districts-label',
-    type: 'symbol',
-    source: 'districts',
-    layout: { visibility: 'none', 'text-field': ['get', 'name'], 'text-font': LABEL_FONT, 'text-size': 12 },
-    paint: { 'text-color': '#6d28d9', 'text-halo-color': '#fff', 'text-halo-width': 1.5 },
-  });
 
   /**
    * Everywhere the answers have ruled out, as one shape.
@@ -837,17 +825,17 @@ function colorFor(key: string, visible: string[]): string {
 }
 
 function redraw(m: MLMap, p: Props) {
-  // The boundary and districts were static once; a community map replaces them.
+  // The boundary was static once; a community map replaces it.
   (m.getSource('boundary') as GeoJSONSource)?.setData(featureCollection([p.data.boundary as any]));
-  (m.getSource('districts') as GeoJSONSource)?.setData(p.data.districts);
 
   // Zones + stations carry an `alive` flag the style keys off.
   const zones: FeatureCollection = {
     type: 'FeatureCollection',
-    features: p.data.zones.features.map((f) => ({
-      ...f,
-      properties: { ...f.properties, alive: p.aliveIds.has(f.properties?.id) },
-    })),
+    features: p.data.zones.features.map((f) => {
+      const alive = p.aliveIds.has(f.properties?.id);
+      const cut = alive ? p.zoneCuts.get(f.properties?.id) : undefined;
+      return { ...f, geometry: cut ? cut.geometry : f.geometry, properties: { ...f.properties, alive, cut: !!cut } };
+    }),
   };
   (m.getSource('zones') as GeoJSONSource)?.setData(zones);
   // Draw counters, for the verification harness only.
@@ -924,10 +912,6 @@ function redraw(m: MLMap, p: Props) {
     }
   });
   (m.getSource('voronoi') as GeoJSONSource)?.setData(cells);
-
-  const showDistricts = p.visibleLayers.includes('districts') ? 'visible' : 'none';
-  m.setLayoutProperty('districts-line', 'visibility', showDistricts);
-  m.setLayoutProperty('districts-label', 'visibility', showDistricts);
 
   // GPS dot + accuracy ring.
   const me: FeatureCollection = { type: 'FeatureCollection', features: [] };

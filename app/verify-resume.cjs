@@ -171,7 +171,7 @@ async function toGame(p) {
   check('a seeker’s map does not draw the hider’s station they recorded afterwards', hiderDrawn === 0, hiderDrawn);
 
   await clickText(p, '^Log \\(', '.sheet button, .chip');
-  await clickText(p, '^End this round$', '.sheet button');
+  await clickText(p, '^End game$', '.sheet button');
   await p.waitForSelector('.sheet h2');
   await clickText(p, '^Results$', '.topbar button');
   const results = await p.textContent('.list.results');
@@ -198,7 +198,7 @@ async function toGame(p) {
 
     // Ended again, and back to the built-in round: the built-in board comes back too.
     await clickText(p, '^Log \\(', '.sheet button, .chip');
-    await clickText(p, '^End this round$', '.sheet button');
+    await clickText(p, '^End game$', '.sheet button');
     await p.waitForSelector('.sheet h2');
     await resumeRow(p, '^Ended round');
     await p.waitForSelector('.qrow', { timeout: 15000 }).catch(() => {});

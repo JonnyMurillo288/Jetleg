@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FeatureCollection } from 'geojson';
 import { QUESTIONS, QUESTIONS_BY_ID } from './questions';
-import { evaluate, resolveAsk, ZONE_RADIUS_M } from './candidates';
+import { evaluate, resolveAsk, zoneOf, ZONE_RADIUS_M } from './candidates';
+import area from '@turf/area';
 import { planCandidate } from './plan';
 import { thermometerRegion, nearestFeature, measuringRegion, matchingRegion } from './regions';
 import { metres } from './project';
@@ -57,7 +58,7 @@ const ask = (questionId: string, origin: LngLat, answer: Answer, destination?: L
   answer,
 });
 
-const run = (asks: AskEntry[], strict: 'conservative' | 'strict' = 'conservative') =>
+const run = (asks: AskEntry[], strict: 'loose' | 'strict' = 'loose') =>
   evaluate(stations, asks, QUESTIONS_BY_ID, layers, boundary, strict);
 
 // Civic Center, roughly.
@@ -157,7 +158,7 @@ describe('radar', () => {
    * hit and a miss, because the hider may stand anywhere in their 500 m circle.
    * Getting this wrong eliminates the true zone and sends seekers across town.
    */
-  it('keeps a straddling zone alive on either answer, conservatively', () => {
+  it('keeps a straddling zone alive on either answer, loosely', () => {
     const RADIUS = 2000;
     const straddler = stations.find((s) => {
       const d = metres(CIVIC, [s.lon, s.lat]);
@@ -178,11 +179,63 @@ describe('radar', () => {
     expect(hit.alive.map((s) => s.id)).not.toContain(far.id);
   });
 
-  it('strict mode narrows harder than conservative', () => {
+  it('strict mode narrows harder than loose', () => {
     const a = ask('radar-2000', CIVIC, { kind: 'yesno', value: 'yes' });
-    const cons = run([a], 'conservative').alive.length;
+    const loose = run([a], 'loose').alive.length;
     const strict = run([a], 'strict').alive.length;
-    expect(strict).toBeLessThanOrEqual(cons);
+    expect(strict).toBeLessThanOrEqual(loose);
+  });
+});
+
+describe('loose: zones are cut', () => {
+  const RADIUS = 2000;
+  const straddler = () => stations.find((s) => Math.abs(metres(CIVIC, [s.lon, s.lat]) - RADIUS) < 150)!;
+
+  it('draws a straddling zone as the part the answer leaves, and the two answers leave the two parts', () => {
+    const s = straddler();
+    const zoneM2 = area(zoneOf(s));
+    const hit = run([ask('radar-2000', CIVIC, { kind: 'yesno', value: 'yes' })]).cuts.get(s.id);
+    const miss = run([ask('radar-2000', CIVIC, { kind: 'yesno', value: 'no' })]).cuts.get(s.id);
+    expect(hit && miss).toBeTruthy();
+    expect(area(hit!)).toBeLessThan(zoneM2);
+    expect(area(miss!)).toBeLessThan(zoneM2);
+    // Together they are the whole circle, give or take the polygon's edges.
+    expect(Math.abs(area(hit!) + area(miss!) - zoneM2) / zoneM2).toBeLessThan(0.01);
+    // Every point left is inside the radar on a hit.
+    for (const [lon, lat] of (hit!.geometry.type === 'Polygon' ? hit!.geometry.coordinates[0] : hit!.geometry.coordinates[0][0])) {
+      expect(metres(CIVIC, [lon, lat])).toBeLessThan(RADIUS + 5);
+    }
+  });
+
+  it('leaves a zone an answer does not touch uncut', () => {
+    const far = stations.find((s) => metres(CIVIC, [s.lon, s.lat]) > 4000)!;
+    const miss = run([ask('radar-2000', CIVIC, { kind: 'yesno', value: 'no' })]);
+    expect(miss.alive.map((x) => x.id)).toContain(far.id);
+    expect(miss.cuts.has(far.id)).toBe(false);
+  });
+
+  /**
+   * What 'loose' adds over judging each answer on its own: two answers that
+   * each keep a different part of a zone leave nothing of it between them.
+   */
+  it('adds the answers’ cuts together, so two answers can rule out a zone neither could alone', () => {
+    const s = straddler();
+    // A second radar beyond the zone, on the line from Civic Center through
+    // it. A hit there keeps only points at least 200 m past the station
+    // towards it; the first radar's hit keeps only points within 150 m or so
+    // of the station on the near side. Each keeps something; together, nothing.
+    const [sx, sy] = [s.lon, s.lat];
+    const away: LngLat = [sx + (sx - CIVIC[0]) * 0.25, sy + (sy - CIVIC[1]) * 0.25];
+    const reach = metres(away, [sx, sy]);
+    const near = ask('radar-2000', CIVIC, { kind: 'yesno', value: 'yes' });
+    const other: AskEntry = { ...ask('radar-choose', away, { kind: 'yesno', value: 'yes' }), distanceM: Math.round(reach - 200) };
+    expect(run([near]).alive.map((x) => x.id)).toContain(s.id);
+    expect(run([other]).alive.map((x) => x.id)).toContain(s.id);
+    const both = run([near, other]);
+    expect(both.alive.map((x) => x.id)).not.toContain(s.id);
+    expect(both.verdicts.find((v) => v.station.id === s.id)!.killedBy).toEqual([other.id]);
+    // Strict sees only the centres, and the centre is inside the second radar.
+    expect(run([near, other], 'strict').alive.map((x) => x.id)).not.toContain(s.id);
   });
 });
 
@@ -205,7 +258,7 @@ describe('measuring', () => {
   });
 
   /**
-   * A consequence of the conservative rule that is easy to mistake for a bug.
+   * A consequence of the loose rule that is easy to mistake for a bug.
    *
    * "Further" eliminates a zone only when the whole 500 m circle is provably
    * closer than the seeker. If the seeker is standing 320 m from a library —
@@ -349,7 +402,7 @@ describe('property: a hider is never eliminated by their own truthful answers', 
       const hotter = metres(end, hider) < metres(seekerAt, hider);
       asks.push(ask('thermo-1000', seekerAt, { kind: 'hotterColder', value: hotter ? 'hotter' : 'colder' }, end));
 
-      const result = evaluate(stations, asks, QUESTIONS_BY_ID, layers, boundary, 'conservative');
+      const result = evaluate(stations, asks, QUESTIONS_BY_ID, layers, boundary, 'loose');
       if (!result.alive.some((s) => s.id === st.id)) failures.push(`${st.id} (${st.name})`);
     }
 

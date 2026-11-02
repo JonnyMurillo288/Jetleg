@@ -36,7 +36,7 @@ export function LayerPanel(props: {
         <a className="buttonlink" href="#/maps">Map studio</a>
       </div>
       <p className="muted small">
-        Browse community maps, or build your own — for San Francisco or any other city — in the map studio.
+        Browse community maps, or build your own for any city, in the map studio.
         {' '}<a href="#/start">Start on another city or map</a>, or go <a href="#/">home</a>.
         {props.onBuiltIn && <> <button className="link" onClick={props.onBuiltIn}>Go back to the built-in board</button></>}
       </p>
@@ -48,18 +48,6 @@ export function LayerPanel(props: {
       </p>
 
       <ul className="list layers">
-        <li>
-          <label>
-            <input
-              type="checkbox"
-              checked={visible.includes('districts')}
-              onChange={() => toggle('districts')}
-            />
-            <span className="grow">Supervisor districts</span>
-            <span className="muted small">{data.districts.features.length}</span>
-          </label>
-        </li>
-
         {LAYER_DEFS.map((def) => {
           const n = data.layers[def.key]?.features.length ?? 0;
           const cells = data.voronoi[def.key]?.features.length ?? 0;
@@ -123,28 +111,27 @@ export function LayerPanel(props: {
       </label>
 
       {/*
-        Named for what it tests rather than for how cautious it is. "Conservative"
-        and "Strict" described the engine's attitude; "Zone centre" and "Whole
-        zone" describe the thing on the map you are ruling in or out.
+        Strict and loose describe how much of a zone an answer has to rule out
+        before the zone goes: its centre, or every last portion of it.
       */}
       <label className="setting">
         <span>
           Rule zones out by
           <span className="muted small">
             {settings.strictness === 'strict'
-              ? 'Zone centre: the station in the middle either fits the answer or it does not. Matches the numbers in the Ask list.'
-              : `Whole zone: kept unless every point in the ${formatDistance(zoneRadius(), settings.units)} circle contradicts the answer. Never rules out the true zone, but narrows slowly.`}
+              ? 'Strict — the zone centre: the station in the middle either fits the answer or it does not, and the zone goes with it. Narrows fastest; matches the numbers in the Ask list.'
+              : `Loose — portions of the zone: each answer cuts away the part of every ${formatDistance(zoneRadius(), settings.units)} circle it rules out, and a zone goes only when nothing of it is left. Never rules out the true zone.`}
           </span>
         </span>
         <div className="seg">
           <button
             className={settings.strictness === 'strict' ? 'on' : ''}
             onClick={() => update({ strictness: 'strict' })}
-          >Zone centre</button>
+          >Strict</button>
           <button
-            className={settings.strictness === 'conservative' ? 'on' : ''}
-            onClick={() => update({ strictness: 'conservative' })}
-          >Whole zone</button>
+            className={settings.strictness === 'loose' ? 'on' : ''}
+            onClick={() => update({ strictness: 'loose' })}
+          >Loose</button>
         </div>
       </label>
 
@@ -152,8 +139,8 @@ export function LayerPanel(props: {
         <span>
           Game size
           <span className="muted small">
-            Selects which questions are in play. San Francisco is a hybrid — {data.stations.length} stations
-            says medium, 120 km² says small.
+            Selects which questions are in play. Agree on it before the round starts: this board has{' '}
+            {data.stations.length} stations.
           </span>
         </span>
         <div className="seg">
@@ -163,21 +150,6 @@ export function LayerPanel(props: {
             </button>
           ))}
         </div>
-      </label>
-
-      <label className="setting">
-        <span>
-          Supervisor districts as 4th division
-          <span className="muted small">
-            House rule. SF has no formal 4th administrative division, so that question is normally dead.
-            Both sides must agree before the round starts.
-          </span>
-        </span>
-        <input
-          type="checkbox"
-          checked={settings.supervisorDistrictsAsAdmin4}
-          onChange={(e) => update({ supervisorDistrictsAsAdmin4: e.target.checked })}
-        />
       </label>
     </div>
   );

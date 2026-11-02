@@ -26,6 +26,7 @@
     "verify:developer": "tsx verify-developer.ts",
     "verify:flow": "node verify-flow.cjs",
     "verify:google": "node verify-google.cjs",
+    "verify:cuts": "node verify-cut-zones.cjs",
     "verify:resume": "node verify-resume.cjs",
     "verify:studio": "node verify-studio-tools.cjs",
     "verify:shapes": "node verify-select-shapes.cjs",

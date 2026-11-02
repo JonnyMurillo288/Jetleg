@@ -2,7 +2,10 @@ import booleanIntersects from '@turf/boolean-intersects';
 import booleanContains from '@turf/boolean-contains';
 import circleOf from '@turf/circle';
 import turfBbox from '@turf/bbox';
-import type { BBox, Feature, Polygon } from 'geojson';
+import turfArea from '@turf/area';
+import intersect from '@turf/intersect';
+import difference from '@turf/difference';
+import type { BBox, Feature, MultiPolygon, Polygon, Position } from 'geojson';
 import type { AskEntry, Boundary, LngLat, PoiLayer, Question, Station } from './types';
 import {
   matchingRegion, measuringRegion, radarRegion, tentacleRegion, thermometerRegion,
@@ -26,17 +29,30 @@ export function setZoneRadius(m: number): void {
 }
 
 /**
- * How strictly to eliminate.
+ * How zones are ruled out.
  *
  * The rulebook is explicit that every answer describes the hider's *current
- * location*, not their hiding zone — and the hider may roam anywhere inside a
- * 500 m circle. So a zone contradicts an answer only if every point in it does.
+ * location*, not their hiding zone — and the hider may roam anywhere inside
+ * their circle.
  *
- * 'conservative' honours that and can never eliminate the true zone.
- * 'strict' tests the station centre alone: it narrows faster, and is wrong
- * whenever the hider is near the edge of their circle.
+ * 'strict' tests the station centre alone: a zone is in or out whole. It
+ *   narrows fastest, and is wrong whenever the hider is near the edge of
+ *   their circle.
+ * 'loose' works with portions of the zone. Each answer cuts away the part of
+ *   every circle it rules out, the answers' cuts add up, and a zone is ruled
+ *   out only when nothing of it is left. It can never eliminate the true
+ *   zone, and the map draws each zone as what is left of it.
+ *
+ * ('loose' replaced 'conservative', which kept a zone if any part of it
+ * survived each answer *separately* — two answers that each left a different
+ * half could not rule it out between them.)
  */
-export type Strictness = 'conservative' | 'strict';
+export type Strictness = 'strict' | 'loose';
+
+/** A stored setting or game file from before 'loose' existed. */
+export function readStrictness(v: unknown): Strictness | undefined {
+  return v === 'strict' ? 'strict' : v === 'loose' || v === 'conservative' ? 'loose' : undefined;
+}
 
 export type ZoneVerdict = {
   station: Station;
@@ -44,6 +60,9 @@ export type ZoneVerdict = {
   /** Ask-entry ids that ruled this zone out. */
   killedBy: string[];
 };
+
+/** Below this many square metres, what is left of a zone is rounding, not ground. */
+const EMPTY_M2 = 1;
 
 /**
  * A station's identity for caching: its id *and* where it is.
@@ -101,36 +120,142 @@ const contains = (outer: BBox, inner: BBox) =>
 /**
  * Does a zone remain possible given that the truth lies inside `region`?
  *
- * Conservative: survives if any part of the zone is inside the region.
- * Strict: survives only if the station centre is inside.
+ * Strict: only if the station centre is inside. Loose: if any part of the
+ * zone is — the cut that follows in `cutZone` can only take more away.
  *
- * Both paths start with a bounding-box test. Regions are clipped to the city
- * boundary and so inherit its ~2,600 vertices; a full polygon predicate against
- * that costs about a millisecond, and the app runs 276 of them per answer. The
- * bbox check rejects most stations outright and is exact when it fires.
+ * The strict path starts with a bounding-box test, which rejects most
+ * stations outright and is exact when it fires.
  */
 function possible(station: Station, region: Region, strictness: Strictness): boolean {
-  const geom = strictness === 'strict' ? pointFeature(station) : zoneOf(station);
-  if (disjoint(bboxOf(geom), bboxOf(region))) return false;
-  return booleanIntersects(geom, region);
+  if (strictness === 'loose') return zoneAgainst(station, region).touches;
+  const p = pointFeature(station);
+  if (disjoint(bboxOf(p), bboxOf(region))) return false;
+  return booleanIntersects(p, region);
 }
 
 /** The inverse: the truth is *outside* `region`. */
 function possibleOutside(station: Station, region: Region, strictness: Strictness): boolean {
-  if (strictness === 'strict') {
-    const p = pointFeature(station);
-    if (disjoint(bboxOf(p), bboxOf(region))) return true;
-    return !booleanIntersects(p, region);
-  }
-  // Survives unless the zone is wholly swallowed by the region. A zone whose
-  // bbox is not inside the region's bbox cannot possibly be contained.
+  if (strictness === 'loose') return !zoneAgainst(station, region).swallowed;
+  const p = pointFeature(station);
+  if (disjoint(bboxOf(p), bboxOf(region))) return true;
+  return !booleanIntersects(p, region);
+}
+
+/** The box a zone's tests and cuts work in: its own, padded so trimming slivers fall outside the circle. */
+function workBox(geom: Feature<any>): BBox {
+  const [x0, y0, x1, y1] = bboxOf(geom);
+  const pad = Math.max(x1 - x0, y1 - y0) * 0.05;
+  return [x0 - pad, y0 - pad, x1 + pad, y1 + pad];
+}
+
+/**
+ * Loose: does any of a zone lie in `region`, and does all of it?
+ *
+ * Tested against the region trimmed to the zone's box rather than the whole
+ * region. A region clipped to the city boundary carries thousands of vertices,
+ * and `booleanContains` against all of them for every station made a single
+ * thermometer answer take 4.6 s on a laptop — a freeze of most of a minute on
+ * a phone. Trimmed, the same test sees the few dozen vertices near the zone.
+ * Exact, because nothing outside the box can touch a zone inside it.
+ */
+function zoneAgainst(station: Station, region: Region): { touches: boolean; swallowed: boolean } {
   const zone = zoneOf(station);
-  if (!contains(bboxOf(region), bboxOf(zone))) return true;
-  try {
-    return !booleanContains(region, zone);
-  } catch {
-    return true;
+  if (disjoint(bboxOf(zone), bboxOf(region))) return { touches: false, swallowed: false };
+  const near = clipToBox(region.geometry as Polygon | MultiPolygon, workBox(zone));
+  if (!near) return { touches: false, swallowed: false };
+  const touches = booleanIntersects(zone, near);
+  let swallowed = false;
+  if (touches && contains(bboxOf(region), bboxOf(zone))) {
+    try { swallowed = booleanContains(near, zone); } catch { swallowed = false; }
   }
+  return { touches, swallowed };
+}
+
+/**
+ * A polygon cut down to a box, ring by ring (Sutherland–Hodgman).
+ *
+ * Regions are clipped to the city boundary and carry its thousands of
+ * vertices. Cutting a 64-point zone circle out of all of that costs far more
+ * than cutting it out of the few dozen vertices near the zone, so the region
+ * is first trimmed to a box a little larger than the zone. The trim can leave
+ * zero-width slivers along the box's edges; the box is padded so they all lie
+ * outside the circle, where the intersection or difference that follows
+ * drops them.
+ */
+function clipToBox(geom: Polygon | MultiPolygon, [x0, y0, x1, y1]: BBox): Feature<MultiPolygon> | null {
+  const clipRing = (ring: Position[]): Position[] => {
+    let out = ring;
+    const edges: [(p: Position) => boolean, (a: Position, b: Position) => Position][] = [
+      [(p) => p[0] >= x0, (a, b) => [x0, a[1] + ((b[1] - a[1]) * (x0 - a[0])) / (b[0] - a[0])]],
+      [(p) => p[0] <= x1, (a, b) => [x1, a[1] + ((b[1] - a[1]) * (x1 - a[0])) / (b[0] - a[0])]],
+      [(p) => p[1] >= y0, (a, b) => [a[0] + ((b[0] - a[0]) * (y0 - a[1])) / (b[1] - a[1]), y0]],
+      [(p) => p[1] <= y1, (a, b) => [a[0] + ((b[0] - a[0]) * (y1 - a[1])) / (b[1] - a[1]), y1]],
+    ];
+    for (const [inside, cross] of edges) {
+      const input = out;
+      out = [];
+      for (let i = 0; i < input.length; i++) {
+        const cur = input[i];
+        const prev = input[(i + input.length - 1) % input.length];
+        if (inside(cur)) {
+          if (!inside(prev)) out.push(cross(prev, cur));
+          out.push(cur);
+        } else if (inside(prev)) out.push(cross(prev, cur));
+      }
+      if (!out.length) return out;
+    }
+    return out;
+  };
+  const polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates;
+  const kept: Position[][][] = [];
+  for (const poly of polys) {
+    const rings: Position[][] = [];
+    for (let r = 0; r < poly.length; r++) {
+      // Rings come closed; clip the open ring and close the result again.
+      const c = clipRing(poly[r].slice(0, -1));
+      if (c.length < 3) { if (r === 0) break; continue; }
+      rings.push([...c, c[0]]);
+    }
+    if (rings.length) kept.push(rings);
+  }
+  return kept.length ? { type: 'Feature', properties: {}, geometry: { type: 'MultiPolygon', coordinates: kept } } : null;
+}
+
+const cutCache = new Map<string, Feature<Polygon | MultiPolygon> | null>();
+
+/**
+ * Loose: what is left of a zone after the answers that only partly cover it.
+ * Null when nothing is.
+ *
+ * `cuts` are the asks, in log order, whose region crosses this zone — the
+ * others either leave it whole or were already enough to rule it out. Each
+ * result is cached under the chain of asks that produced it, so adding an
+ * answer to the log costs one more cut per zone it crosses, not a rebuild.
+ */
+function cutZone(station: Station, cuts: { sig: string; region: Region; inverted: boolean }[]): Feature<Polygon | MultiPolygon> | null {
+  let left: Feature<Polygon | MultiPolygon> | null = zoneOf(station);
+  let key = `${stationKey(station)}r${boardZoneRadiusM}`;
+  for (const c of cuts) {
+    key += `|${c.inverted ? '-' : '+'}${c.sig}`;
+    const cached = cutCache.get(key);
+    if (cached !== undefined) { left = cached; if (!left) return null; continue; }
+    const near = clipToBox(c.region.geometry as Polygon | MultiPolygon, workBox(left));
+    let next: Feature<Polygon | MultiPolygon> | null;
+    try {
+      next = c.inverted
+        ? (near ? difference({ type: 'FeatureCollection', features: [left, near] }) : left)
+        : (near ? intersect({ type: 'FeatureCollection', features: [left, near] }) : null);
+    } catch {
+      // A degenerate cut is not evidence: keep what was there.
+      next = left;
+    }
+    if (next && turfArea(next) < EMPTY_M2) next = null;
+    if (cutCache.size > 20_000) cutCache.clear();
+    cutCache.set(key, next);
+    left = next;
+    if (!left) return null;
+  }
+  return left;
 }
 
 /**
@@ -303,26 +428,47 @@ export function evaluate(
   layers: Record<string, PoiLayer>,
   boundary: Boundary,
   strictness: Strictness,
-): { verdicts: ZoneVerdict[]; resolved: ResolvedAsk[]; alive: Station[] } {
+): {
+  verdicts: ZoneVerdict[];
+  resolved: ResolvedAsk[];
+  alive: Station[];
+  /** Loose only: what is left of each surviving zone that an answer has cut into, by station id. */
+  cuts: Map<string, Feature<Polygon | MultiPolygon>>;
+} {
   const resolved = asks
     .map((a) => (questionsById[a.questionId] ? resolveAsk(a, questionsById[a.questionId], layers, boundary) : null))
     .filter(Boolean) as ResolvedAsk[];
 
   // One survivor set per answered question, then intersect.
-  const survivorSets = resolved.map((r) =>
-    r.region ? { id: r.entry.id, set: verdictsFor(signature(r.entry), r.region, stations, strictness)[r.inverted ? 'no' : 'yes'] } : null,
-  );
+  const survivorSets = resolved.map((r) => {
+    if (!r.region) return null;
+    const sig = signature(r.entry);
+    const v = verdictsFor(sig, r.region, stations, strictness);
+    // A zone the region both touches and does not swallow is crossed by it:
+    // for loose, that is a zone this answer cuts.
+    return { id: r.entry.id, sig, region: r.region, inverted: r.inverted, set: v[r.inverted ? 'no' : 'yes'], v };
+  });
 
+  const cuts = new Map<string, Feature<Polygon | MultiPolygon>>();
   const verdicts: ZoneVerdict[] = stations.map((station) => {
     const killedBy: string[] = [];
     for (const s of survivorSets) {
       if (!s) continue;
       if (!s.set.has(station.id)) killedBy.push(s.id);
     }
+    if (strictness === 'loose' && killedBy.length === 0) {
+      const crossing = survivorSets.filter((s): s is NonNullable<typeof s> => !!s && s.v.yes.has(station.id) && s.v.no.has(station.id));
+      if (crossing.length) {
+        const left = cutZone(station, crossing);
+        // The cuts together left nothing: the last of them is what finished it.
+        if (!left) killedBy.push(crossing[crossing.length - 1].id);
+        else cuts.set(station.id, left);
+      }
+    }
     return { station, alive: killedBy.length === 0, killedBy };
   });
 
-  return { verdicts, resolved, alive: verdicts.filter((v) => v.alive).map((v) => v.station) };
+  return { verdicts, resolved, alive: verdicts.filter((v) => v.alive).map((v) => v.station), cuts };
 }
 
 /**
@@ -431,6 +577,7 @@ export function resetPreviewCaches(): void {
  */
 export function resetCandidateCaches(): void {
   zoneCache.clear();
+  cutCache.clear();
   verdictCache.clear();
   regionCache.clear();
   nearestCache.clear();

@@ -417,7 +417,7 @@ function Exposure(props: {
         </>
       )}
 
-      <button className="link danger" onClick={onEnd}>End this round</button>
+      <button className="link danger" onClick={onEnd}>End game</button>
     </div>
   );
 }

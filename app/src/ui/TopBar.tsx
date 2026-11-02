@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useGame } from '../store/game';
 import { describeAccuracy, isStale, useFixAge, type LocationState } from '../location/useLocation';
 import { formatDistance } from './units';
@@ -21,9 +21,32 @@ export function TopBar(props: {
   const role = useGame((s) => s.role);
   const setRole = useGame((s) => s.setRole);
 
+  // The map's floating tools sit just below the bar, and the bar's height
+  // changes — a chat button, a manual-location hint, a pass line. Publish it
+  // rather than have the tools guess a fixed number of pixels.
+  const bar = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = bar.current;
+    if (!el) return;
+    const publish = () => document.documentElement.style.setProperty('--topbar-h', `${el.offsetHeight}px`);
+    publish();
+    const ro = new ResizeObserver(publish);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  /*
+   * Three rows, because one could not hold them: at phone width the old single
+   * row already cut the zone counter to "192/…". Who you are and how many
+   * zones are left, with the way home and into the game; then where you are
+   * in the app; then the GPS.
+   */
   return (
-    <header className="topbar">
+    <header className="topbar" ref={bar}>
       <div className="topbar-row">
+        <a className="homebtn" href="#/" title="Home" aria-label="Home">
+          <span aria-hidden="true">⌂</span><span className="homelabel">Home</span>
+        </a>
         <div className="seg">
           <button className={role === 'seeker' ? 'on' : ''} onClick={() => setRole('seeker')}>Seeker</button>
           <button className={role === 'hider' ? 'on' : ''} onClick={() => setRole('hider')}>Hider</button>
@@ -34,17 +57,61 @@ export function TopBar(props: {
           <span className="muted">/{total}</span>
         </div>
 
-        <div className="seg">
-          <button className={tab === 'play' ? 'on' : ''} onClick={() => onTab('play')}>Play</button>
-          <button className={tab === 'layers' ? 'on' : ''} onClick={() => onTab('layers')}>Map</button>
-          <button className={tab === 'results' ? 'on' : ''} onClick={() => onTab('results')}>Results</button>
-          <button className={tab === 'help' ? 'on' : ''} onClick={() => onTab('help')} title="Diagnostics">?</button>
-        </div>
+        <GameButtons tab={tab} onTab={onTab} gameCode={props.gameCode} chatBadge={props.chatBadge} />
       </div>
 
-      <LocationLine loc={loc} tab={tab} onTab={onTab} gameCode={props.gameCode} chatBadge={props.chatBadge} />
+      <div className="seg wide topbar-tabs">
+        <button className={tab === 'play' ? 'on' : ''} onClick={() => onTab('play')}>Play</button>
+        <button className={tab === 'layers' ? 'on' : ''} onClick={() => onTab('layers')}>Map</button>
+        <button className={tab === 'results' ? 'on' : ''} onClick={() => onTab('results')}>Results</button>
+        <button className={tab === 'help' ? 'on' : ''} onClick={() => onTab('help')} title="Diagnostics and bug reports">?</button>
+      </div>
+
+      <LocationLine loc={loc} onTab={onTab} />
       <EntitlementLine />
     </header>
+  );
+}
+
+/**
+ * The game room's button and, once in one, its chat. Showing the code doubles
+ * as the reminder that this phone is in a game — and so, when seeking,
+ * sharing its position.
+ */
+function GameButtons(props: {
+  tab: Tab;
+  onTab: (t: Tab) => void;
+  gameCode: string | null;
+  chatBadge: { unread: number; owed: number };
+}) {
+  return (
+    <>
+      <button
+        className={`gpstoggle gamebtn ${props.tab === 'game' ? 'on' : ''}`}
+        onClick={() => props.onTab(props.tab === 'game' ? 'play' : 'game')}
+        aria-pressed={props.tab === 'game'}
+        title={props.gameCode ? `In game ${props.gameCode}` : 'Create or join a game to share seeker locations'}
+      >
+        {props.gameCode ?? 'Game'}
+      </button>
+
+      {props.gameCode && (
+        // A question owed is louder than a message unread: it has a clock on it.
+        <button
+          className={`gpstoggle chatbtn ${props.tab === 'chat' ? 'on' : ''} ${props.chatBadge.owed ? 'owed' : ''}`}
+          onClick={() => props.onTab(props.tab === 'chat' ? 'play' : 'chat')}
+          aria-pressed={props.tab === 'chat'}
+          title="Questions and chat with everyone in this game"
+        >
+          Chat
+          {(props.chatBadge.owed || props.chatBadge.unread) > 0 && (
+            <span className="badge" aria-label={props.chatBadge.owed ? `${props.chatBadge.owed} to answer` : `${props.chatBadge.unread} unread`}>
+              {props.chatBadge.owed || props.chatBadge.unread}
+            </span>
+          )}
+        </button>
+      )}
+    </>
   );
 }
 
@@ -89,10 +156,7 @@ function formatDuration(ms: number): string {
  */
 function LocationLine(props: {
   loc: LocationState;
-  tab: Tab;
   onTab: (t: Tab) => void;
-  gameCode: string | null;
-  chatBadge: { unread: number; owed: number };
 }) {
   const { loc } = props;
   const ageSeconds = useFixAge(loc.fix);
@@ -135,35 +199,6 @@ function LocationLine(props: {
           {manual.enabled ? 'Manual' : 'GPS'}
         </button>
 
-        {/* Lives here rather than in the tab row above: a fifth tab left the
-            zone counter no room at phone width. Showing the code doubles as
-            the reminder that this phone is in a game — and so, when seeking,
-            sharing its position. */}
-        <button
-          className={`gpstoggle ${props.tab === 'game' ? 'on' : ''}`}
-          onClick={() => props.onTab(props.tab === 'game' ? 'play' : 'game')}
-          aria-pressed={props.tab === 'game'}
-          title={props.gameCode ? `In game ${props.gameCode}` : 'Create or join a game to share seeker locations'}
-        >
-          {props.gameCode ? `Game ${props.gameCode}` : 'Game'}
-        </button>
-
-        {props.gameCode && (
-          // A question owed is louder than a message unread: it has a clock on it.
-          <button
-            className={`gpstoggle chatbtn ${props.tab === 'chat' ? 'on' : ''} ${props.chatBadge.owed ? 'owed' : ''}`}
-            onClick={() => props.onTab(props.tab === 'chat' ? 'play' : 'chat')}
-            aria-pressed={props.tab === 'chat'}
-            title="Questions and chat with everyone in this game"
-          >
-            Chat
-            {(props.chatBadge.owed || props.chatBadge.unread) > 0 && (
-              <span className="badge" aria-label={props.chatBadge.owed ? `${props.chatBadge.owed} to answer` : `${props.chatBadge.unread} unread`}>
-                {props.chatBadge.owed || props.chatBadge.unread}
-              </span>
-            )}
-          </button>
-        )}
       </div>
 
       {manual.enabled && (

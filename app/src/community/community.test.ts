@@ -131,12 +131,12 @@ describe('playing a map', () => {
       ...shipped,
       stations: shipped.stations.map((s) => (s.id === target.id ? { ...s, lon: far.lon + 0.0005, lat: far.lat } : s)),
     });
-    for (const strictness of ['strict', 'conservative'] as const) {
+    for (const strictness of ['strict', 'loose'] as const) {
       const after = evaluate(moved.stations, [ask], QUESTIONS_BY_ID, {}, boundary, strictness);
       expect(after.alive.some((s) => s.id === target.id)).toBe(false);
     }
     // And the original board is still judged as itself afterwards.
-    const again = evaluate(stations, [ask], QUESTIONS_BY_ID, {}, boundary, 'conservative');
+    const again = evaluate(stations, [ask], QUESTIONS_BY_ID, {}, boundary, 'loose');
     expect(again.alive.some((s) => s.id === target.id)).toBe(true);
   });
 

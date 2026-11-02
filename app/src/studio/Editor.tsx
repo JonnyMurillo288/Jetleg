@@ -530,14 +530,6 @@ function DetailsTab(p: TabProps) {
         </div>
       </div>
       {!p.pack && (
-        <label className="check">
-          <input type="checkbox" checked={!!draft.rules.supervisorDistrictsAsAdmin4}
-            onChange={(e) => set({ rules: { ...draft.rules, supervisorDistrictsAsAdmin4: e.target.checked } })} />
-          <span>Supervisor districts count as the 4th administrative division</span>
-        </label>
-      )}
-
-      {!p.pack && (
         <>
           <h3>Want to change more than the stations?</h3>
           <p className="muted small">

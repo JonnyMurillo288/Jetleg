@@ -15,7 +15,7 @@ const read = <T>(f: string): T => JSON.parse(readFileSync(join(DATA, f), 'utf8')
 const stations = read<{ stations: Station[] }>('stations.json').stations;
 const boundary = read<FeatureCollection>('boundary.geojson').features[0] as Boundary;
 const bbox = read<[number, number, number, number]>('bbox.json');
-const base = { boundary, bbox, stations, zones: read<FeatureCollection>('zones.geojson'), layers: {}, voronoi: {}, districts: { type: 'FeatureCollection', features: [] }, zoneRadiusM: ZONE_RADIUS_M } as unknown as GameData;
+const base = { boundary, bbox, stations, zones: read<FeatureCollection>('zones.geojson'), layers: {}, voronoi: {}, zoneRadiusM: ZONE_RADIUS_M } as unknown as GameData;
 
 const haversine = (a: number[], b: number[]) => {
   const rad = (d: number) => (d * Math.PI) / 180;
@@ -54,7 +54,7 @@ describe('a map’s own hiding-zone radius', () => {
     const alive = (r: number) => {
       enterBoard(bbox, r);
       expect(zoneRadius()).toBe(r);
-      return evaluate(stations, [ask], QUESTIONS_BY_ID, {}, boundary, 'conservative').alive.length;
+      return evaluate(stations, [ask], QUESTIONS_BY_ID, {}, boundary, 'loose').alive.length;
     };
     const at500 = alive(500);
     const at250 = alive(250);

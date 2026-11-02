@@ -36,7 +36,6 @@ export type SyncSettings = {
   gameSize: string;
   strictness: string;
   units: string;
-  supervisorDistrictsAsAdmin4: boolean;
 };
 
 export type GamePayload = {

@@ -98,7 +98,6 @@ export function RoundGate(props: { canStart: boolean; onRestored: () => void; on
       <div className="row">
         <a className="buttonlink" href="#/start">Change city or map</a>
         <a className="buttonlink" href="#/stats">Game stats</a>
-        <a className="buttonlink" href="#/">Home</a>
       </div>
 
       <h3>Backup</h3>

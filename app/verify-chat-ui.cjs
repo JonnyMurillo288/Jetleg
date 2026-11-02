@@ -204,13 +204,13 @@ async function startRound(pl, role, email) {
 
     // ---- the room
     check('there is no Chat button outside a game', !(await seeker.p.$('.chatbtn')));
-    await clickText(seeker.p, '^Game', '.gpsrow button');
+    await seeker.p.click('.gamebtn');
     await seeker.p.fill('.gameroom .field input', 'Sam');
     await seeker.p.fill('.gameroom input[placeholder="Your team\'s name"]', 'Blue');
     await clickText(seeker.p, 'Create game');
     await seeker.p.waitForSelector('.gamecode strong', { timeout: 15000 });
     const code = (await seeker.p.textContent('.gamecode strong')).trim();
-    await clickText(hider.p, '^Game', '.gpsrow button');
+    await hider.p.click('.gamebtn');
     await hider.p.fill('.gameroom .field input', 'Hana');
     await hider.p.fill('.gameroom input.code', code);
     await clickText(hider.p, 'Find game');
@@ -219,7 +219,7 @@ async function startRound(pl, role, email) {
     await clickText(hider.p, 'Add team');
     await hider.p.waitForSelector('.gamecode strong', { timeout: 15000 });
     check('in a game, a Chat button appears next to it', !!(await seeker.p.$('.chatbtn')) && !!(await hider.p.$('.chatbtn')));
-    const gpsrow = await seeker.p.evaluate(() => { const r = document.querySelector('.gpsrow'); return { scroll: r.scrollWidth, client: r.clientWidth, page: document.documentElement.scrollWidth }; });
+    const gpsrow = await seeker.p.evaluate(() => { const r = document.querySelector('.topbar-row'); return { scroll: r.scrollWidth, client: r.clientWidth, page: document.documentElement.scrollWidth }; });
     check('the top bar still fits a 390 px phone with Chat in it', gpsrow.scroll <= gpsrow.client && gpsrow.page <= 390, JSON.stringify(gpsrow));
     const { data: game } = await admin.from('games').select('id').eq('join_code', code).single();
     for (const pl of [seeker, hider]) {
@@ -257,7 +257,7 @@ async function startRound(pl, role, email) {
 
     const badge = await hider.p.waitForFunction(() => document.querySelector('.chatbtn.owed .badge')?.textContent === '1', null, { timeout: 15000 }).then(() => true, () => false);
     check('the hider’s Chat button shows one question owed, before opening it', badge);
-    await (await hider.p.$('.gpsrow')).screenshot({ path: path.join(shots, 'hider-owed-button.png') });
+    await (await hider.p.$('.topbar-row')).screenshot({ path: path.join(shots, 'hider-owed-button.png') });
     await hider.p.click('.chatbtn');
     await hider.p.waitForSelector('.cq.waiting[data-question="match-park"] [role=timer]', { timeout: 15000 });
     const t1 = await hider.p.textContent('.cq.waiting [role=timer]');
@@ -427,14 +427,14 @@ async function startRound(pl, role, email) {
     await seeker.p.waitForFunction(() => window.__mapReady === true, null, { timeout: 45000 });
     const chatKeys = async () => (await idbKeys(seeker.p)).filter(k => k.startsWith('chat/log/') || k.startsWith('chat/photo/'));
     check('before: the seeker’s phone holds the chat and the photo', (await chatKeys()).length === 2, JSON.stringify(await chatKeys()));
-    await clickText(seeker.p, '^Game', '.gpsrow button');
+    await seeker.p.click('.gamebtn');
     await clickText(seeker.p, 'Leave game');
     await seeker.p.waitForSelector('.gameroom input.code', { timeout: 10000 });
     await seeker.p.waitForTimeout(1500);
     check('leaving the game keeps the chat, while a round on the phone still names it', (await chatKeys()).length === 2);
     await clickText(seeker.p, '^Play$', '.topbar button');
     await clickText(seeker.p, '^Log', '.seg button');
-    await clickText(seeker.p, 'End this round');
+    await clickText(seeker.p, '^End game$');
     await seeker.p.waitForSelector('.list li button.link.danger', { timeout: 10000 });
     while (await seeker.p.$('.list li button.link.danger')) {
       await seeker.p.click('.list li button.link.danger');

@@ -464,6 +464,7 @@ export default function App() {
       <MapView
         data={data}
         aliveIds={aliveIds}
+        zoneCuts={evaluated.cuts}
         resolved={evaluated.resolved}
         hiddenOverlays={hiddenOverlays}
         visibleLayers={visibleLayers}
@@ -539,7 +540,7 @@ export default function App() {
         </button>
 
         {tab === 'help' ? (
-          <Diagnostics />
+          <Diagnostics boardName={activeMap?.map.name ?? null} />
         ) : tab === 'layers' ? (
           <LayerPanel
             data={data}
@@ -582,6 +583,7 @@ export default function App() {
             pins={pins}
             setPins={setPins}
             planCandidates={planCandidates}
+            builtInGround={!activeMap || activeMap.map.kind === 'stations'}
             chat={game ? { questions: chat.questions, photos: chat.photos, onAsk: askInChat } : undefined}
           />
         ) : (

@@ -27,6 +27,12 @@ export function SeekerPanel(props: {
   setPins: (p: { start?: LngLat; end?: LngLat }) => void;
   /** Shortlisted questions, already evaluated against the surviving zones. */
   planCandidates: PlanCandidate[];
+  /**
+   * Whether the board is San Francisco's own ground (the built-in board, or a
+   * station map on it). Some questions there have a known answer that the
+   * data cannot show; on any other city those facts would be wrong.
+   */
+  builtInGround: boolean;
   /** In a game: ask through its chat, and see the photos the hider sent. */
   chat?: {
     questions: ChatQuestion[];
@@ -35,7 +41,7 @@ export function SeekerPanel(props: {
     onAsk: (q: Question, extra?: AskExtra) => Promise<string | null>;
   };
 }) {
-  const { data, round, evaluated, origin, pins, setPins, planCandidates, chat } = props;
+  const { data, round, evaluated, origin, pins, setPins, planCandidates, chat, builtInGround } = props;
   const [photo, setPhoto] = useState<{ id: string; caption: string } | null>(null);
   const [view, setView] = useState<'ask' | 'plan' | 'log'>('ask');
   const [category, setCategory] = useState<Category>('radar');
@@ -60,10 +66,10 @@ export function SeekerPanel(props: {
   const statuses = useMemo(() => {
     const out: Record<string, ReturnType<typeof statusFor>> = {};
     for (const q of available) {
-      out[q.id] = statusFor(q, origin, data, evaluated, settings.supervisorDistrictsAsAdmin4);
+      out[q.id] = statusFor(q, origin, data, evaluated, builtInGround);
     }
     return out;
-  }, [available, origin, data, evaluated, settings.supervisorDistrictsAsAdmin4]);
+  }, [available, origin, data, evaluated, builtInGround]);
 
   const askCounts = useMemo(() => {
     const m: Record<string, number> = {};
@@ -231,55 +237,27 @@ function ThermometerBar(props: {
 }
 
 /**
- * Questions whose San Francisco outcome is fixed by geography, not by data.
+ * Questions whose outcome on the built-in board is fixed by geography, not
+ * by data.
  *
  * These cannot be detected from an empty layer file, because the feature does
  * exist — there is simply only one of it covering the whole board. Saying
- * "no 1st administrative division inside the boundary" would be wrong and
- * confusing; the truth is that everyone is in California, so the answer is
- * always yes and the question is a wasted turn either way.
+ * "none inside the boundary" would be wrong and confusing; the truth is that
+ * the whole board is in one state, so the answer is always yes and the
+ * question is a wasted turn either way. Worded for the board, not the city:
+ * they are shown only on the built-in board's own ground.
  */
-const SF_NOTES: Record<string, { state: 'null' | 'useless'; reason: string }> = {
-  'match-1st-administrative-division': {
-    state: 'useless',
-    reason: 'The whole board is in California, so this is always yes.',
-  },
-  'match-2nd-administrative-division': {
-    state: 'useless',
-    reason: 'The whole board is in San Francisco County, so this is always yes.',
-  },
-  'match-3rd-administrative-division': {
-    state: 'useless',
-    reason: 'The whole board is the City of San Francisco, so this is always yes.',
-  },
-  'match-4th-administrative-division': {
-    state: 'null',
-    reason: 'San Francisco has no formal 4th administrative division. Turn on the supervisor-district house rule in Layers to make this question live.',
-  },
-  'match-landmass': {
-    state: 'useless',
-    reason: 'With the islands out of play the board is a single landmass, so this is always yes.',
-  },
-  'meas-1st-administrative-division-border': {
-    state: 'null',
-    reason: 'The California state line is nowhere near the board.',
-  },
-  'meas-international-border': {
-    state: 'null',
-    reason: 'No international border on the board.',
-  },
-  'meas-high-speed-train-line': {
-    state: 'null',
-    reason: 'No high-speed rail operating in California.',
-  },
-  'match-commercial-airport': {
-    state: 'null',
-    reason: 'SFO, OAK and SJC are all outside the city limits, so this returns null.',
-  },
-  'meas-commercial-airport': {
-    state: 'null',
-    reason: 'SFO, OAK and SJC are all outside the city limits, so this returns null.',
-  },
+const BUILT_IN_NOTES: Record<string, { state: 'null' | 'useless'; reason: string }> = {
+  'match-1st-administrative-division': { state: 'useless', reason: 'The whole board is in one state, so this is always yes.' },
+  'match-2nd-administrative-division': { state: 'useless', reason: 'The whole board is in one county, so this is always yes.' },
+  'match-3rd-administrative-division': { state: 'useless', reason: 'The whole board is one city, so this is always yes.' },
+  'match-4th-administrative-division': { state: 'null', reason: 'This board has no 4th administrative division, so this returns null.' },
+  'match-landmass': { state: 'useless', reason: 'With the islands out of play the board is a single landmass, so this is always yes.' },
+  'meas-1st-administrative-division-border': { state: 'null', reason: 'No state line anywhere near the board.' },
+  'meas-international-border': { state: 'null', reason: 'No international border on the board.' },
+  'meas-high-speed-train-line': { state: 'null', reason: 'No high-speed rail line on the board.' },
+  'match-commercial-airport': { state: 'null', reason: 'No commercial airport inside the boundary, so this returns null.' },
+  'meas-commercial-airport': { state: 'null', reason: 'No commercial airport inside the boundary, so this returns null.' },
 };
 
 /**
@@ -296,13 +274,13 @@ function statusFor(
   origin: LngLat | null,
   data: GameData,
   evaluated: Evaluated,
-  admin4HouseRule: boolean,
+  builtInGround: boolean,
 ) {
-  const sf = SF_NOTES[q.id];
-  if (sf && !(q.id === 'match-4th-administrative-division' && admin4HouseRule)) {
-    return sf.state === 'null'
-      ? { state: 'null' as const, reason: sf.reason }
-      : { state: 'useless' as const, reason: sf.reason, yes: evaluated.alive.length, no: 0 };
+  const fixed = builtInGround ? BUILT_IN_NOTES[q.id] : undefined;
+  if (fixed) {
+    return fixed.state === 'null'
+      ? { state: 'null' as const, reason: fixed.reason }
+      : { state: 'useless' as const, reason: fixed.reason, yes: evaluated.alive.length, no: 0 };
   }
 
   if (q.layer) {

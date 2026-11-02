@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { loadGameData, type GameData } from '../data/load';
 import { enterBoard } from '../engine/reset';
-import type { Strictness } from '../engine/candidates';
+import { readStrictness, type Strictness } from '../engine/candidates';
 import { requestPersistence, useGame, type Round } from '../store/game';
 import { loadActiveMap, sameBoard, stampOf, type ActiveMap } from '../community/active';
 import { applyMap } from '../community/board';
@@ -84,8 +84,7 @@ export function StatsPage() {
     const fromFile = open.source === 'file';
     // A file scores its rounds the way they were scored when it was written.
     const fileStrictness = opened?.file.settings.strictness;
-    const strictness: Strictness | undefined =
-      fromFile && (fileStrictness === 'strict' || fileStrictness === 'conservative') ? fileStrictness : undefined;
+    const strictness: Strictness | undefined = fromFile ? readStrictness(fileStrictness) : undefined;
     return (
       <Page title="Game stats">
         <button className="link" onClick={() => setOpen(null)}>← All rounds</button>

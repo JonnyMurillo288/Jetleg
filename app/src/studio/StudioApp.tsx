@@ -18,6 +18,9 @@ import { Editor, editorTap, newEditor, shapePick, type EditorState, type EditorT
 
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] };
 
+/** The studio has no answers, so no zone is ever cut. */
+const NO_CUTS = new Map();
+
 /**
  * The map studio — its own page (`#/maps`), apart from the game.
  *
@@ -141,7 +144,7 @@ export function StudioApp(props: { openId: string | null; create: boolean }) {
     if (!base) return;
     const rules = { gameSize: settings.gameSize };
     if (kind === 'stations') {
-      edit({ ...mapFromBoard(base.stations, { ...rules, supervisorDistrictsAsAdmin4: settings.supervisorDistrictsAsAdmin4 }, '', CITY), country: CITY_COUNTRY }, { type: 'new' });
+      edit({ ...mapFromBoard(base.stations, rules, '', CITY), country: CITY_COUNTRY }, { type: 'new' });
     } else if (kind === 'sf-pack') {
       edit({ ...packFromBoard(base, CITY_NAME, CITY, rules), country: CITY_COUNTRY }, { type: 'new' });
     } else {
@@ -190,6 +193,7 @@ export function StudioApp(props: { openId: string | null; create: boolean }) {
       <MapView
         data={data}
         aliveIds={aliveIds}
+        zoneCuts={NO_CUTS}
         resolved={[]}
         hiddenOverlays={[]}
         visibleLayers={visibleLayers}

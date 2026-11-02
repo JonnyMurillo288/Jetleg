@@ -74,6 +74,23 @@ body {
 }
 .count strong { font-size: 17px; color: var(--accent); }
 
+/* Home: its own shade, so the way out of a game never reads as one of the game's controls. */
+:root { --home-bg: #e0e7ff; --home-ink: #312e81; --home-line: #c7d2fe; }
+@media (prefers-color-scheme: dark) { :root { --home-bg: #312e81; --home-ink: #e0e7ff; --home-line: #4338ca; } }
+.homebtn {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px;
+  min-height: 36px; padding: 0 10px; border-radius: 8px;
+  background: var(--home-bg); color: var(--home-ink); border: 1px solid var(--home-line);
+  font-size: 13px; font-weight: 600; text-decoration: none;
+}
+.homebtn > span:first-child { font-size: 17px; line-height: 1; }
+/* Narrow phones: the house alone, so the zone counter keeps its room. */
+@media (max-width: 400px) { .homebtn .homelabel { display: none; } .homebtn { padding: 0 9px; } }
+
+.seg.wide.topbar-tabs { margin: 6px 0 0; }
+.topbar-tabs button { padding: 5px 4px; font-size: 13px; min-height: 34px; }
+.topbar-row .gpstoggle { flex: 0 0 auto; min-height: 36px; }
+
 .gps { font-size: 12px; color: var(--muted); padding: 4px 2px 0; min-width: 0; }
 .gps.warn { color: var(--warn); }
 .gps.bad { color: var(--no); }
@@ -432,7 +449,8 @@ code { background: var(--line); padding: 2px 5px; border-radius: 4px; font-size:
 .maptools {
   position: absolute;
   left: 10px;
-  top: calc(env(safe-area-inset-top) + 92px);
+  /* --topbar-h is published by TopBar, safe-area padding included. */
+  top: calc(var(--topbar-h, 128px) + 10px);
   z-index: 5;
   display: flex;
   flex-direction: column;
@@ -1075,7 +1093,7 @@ button.resume.big { min-height: 44px; }
 /* A layers panel never runs off the screen: it stops above the bottom edge
    and scrolls as one list, rather than holding two small scroll boxes of its
    own inside a panel taller than the phone. */
-.maptools .maplayers-panel { max-height: calc(100dvh - env(safe-area-inset-top) - 150px); overflow-y: auto; overscroll-behavior: contain; }
+.maptools .maplayers-panel { max-height: calc(100dvh - var(--topbar-h, 128px) - 70px); overflow-y: auto; overscroll-behavior: contain; }
 .maptools .maplayers-panel .maplayers-scroll { max-height: none; overflow: visible; }
 .app.studio .maptools.studio-layers .maplayers-panel { max-height: calc(100dvh - env(safe-area-inset-top) - 116px); }
 
@@ -1090,3 +1108,11 @@ button.resume.big { min-height: 44px; }
   box-shadow: 0 4px 16px rgba(0, 0, 0, .25); font-size: 14px;
 }
 .updatebanner button { min-height: 34px; padding: 4px 14px; border-radius: 999px; }
+
+/* -------------------------------------------------------------- bug report */
+
+.report textarea { width: 100%; box-sizing: border-box; margin-top: 8px; font: inherit; }
+.report .seg { margin-top: 4px; }
+.report .reportdevice { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--line); border-radius: 8px; padding: 8px 10px; margin: 4px 0 0; }
+.report .check { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; min-height: 36px; }
+.report .notice { padding: 8px 10px; border-radius: 8px; background: var(--line); }

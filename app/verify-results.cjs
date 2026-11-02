@@ -74,7 +74,7 @@ const check = (name, ok, detail) => {
 
   await click(p, '^Log \\(');
   await p.waitForTimeout(800);
-  await click(p, '^End this round$');
+  await click(p, '^End game$');
   await p.waitForTimeout(500);
 
   // Results list should now show exactly this one finished round.

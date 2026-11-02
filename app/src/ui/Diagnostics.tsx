@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useGame } from '../store/game';
 import { formatDistance } from './units';
 import type { Units } from '../store/game';
+import { ReportBug } from './ReportBug';
 
 /**
  * Environment self-check.
@@ -22,7 +23,7 @@ type Check = {
   fix?: string;
 };
 
-export function Diagnostics() {
+export function Diagnostics(props: { boardName: string | null }) {
   const [checks, setChecks] = useState<Check[]>([]);
   const [running, setRunning] = useState(true);
   const units = useGame((s) => s.settings.units);
@@ -85,6 +86,8 @@ export function Diagnostics() {
           </li>
         ))}
       </ul>
+
+      <ReportBug checks={checks} boardName={props.boardName} />
 
       <h3>Reset</h3>
       <p className="muted small">

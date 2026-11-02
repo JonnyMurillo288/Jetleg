@@ -42,11 +42,11 @@ matching('Station Name’s Length', 'Transit', undefined,
 matching('Street or Path', 'Transit', 'streets',
   'A street ends when its name changes — "Jet Lag St. East" and "Jet Lag St. West" are different streets. Unnamed paths start and end at intersections.');
 
-matching('1st Administrative Division', 'Administrative Divisions', 'admin1', 'US states.');
-matching('2nd Administrative Division', 'Administrative Divisions', 'admin2', 'US counties.');
-matching('3rd Administrative Division', 'Administrative Divisions', 'admin3', 'US municipalities.');
+matching('1st Administrative Division', 'Administrative Divisions', 'admin1', 'States, provinces or regions.');
+matching('2nd Administrative Division', 'Administrative Divisions', 'admin2', 'Counties, or what a country has in their place.');
+matching('3rd Administrative Division', 'Administrative Divisions', 'admin3', 'Municipalities: cities, towns and townships.');
 matching('4th Administrative Division', 'Administrative Divisions', 'admin4',
-  'Boroughs, wards or special districts. San Francisco has no formal 4th division — enable the supervisor-district house rule in settings to use this question.');
+  'Boroughs, wards or special districts, where a country has them.');
 
 matching('Mountain', 'Natural', 'mountains', 'Anything classified as a mountain by your mapping app. Measure to the map icon.');
 matching('Landmass', 'Natural', 'landmass',
@@ -88,8 +88,8 @@ measuring('High-Speed Train Line', 'Transit-related', 'hsr',
 measuring('Rail Station', 'Transit-related', 'railStations', 'Light and heavy rail; metros and subways count.');
 
 measuring('International Border', 'Borders', 'intlBorder', 'Enclaves count.');
-measuring('1st Administrative Division Border', 'Borders', 'admin1Border', 'US state lines.');
-measuring('2nd Administrative Division Border', 'Borders', 'admin2Border', 'US county lines.');
+measuring('1st Administrative Division Border', 'Borders', 'admin1Border', 'State or province lines.');
+measuring('2nd Administrative Division Border', 'Borders', 'admin2Border', 'County lines.');
 
 measuring('Sea Level', 'Natural', 'elevation', 'Your altitude. Sampled from a terrain model rather than the phone compass, which is unreliable.');
 measuring('Body of Water', 'Natural', 'water', 'Any named body of water on your maps app, excluding pools.');

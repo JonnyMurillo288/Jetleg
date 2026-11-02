@@ -3,7 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { get as idbGet, set as idbSet, del as idbDel } from 'idb-keyval';
 import type { BoardStamp } from '../community/active';
 import type { Answer, AskEntry, GameSize, Role } from '../engine/types';
-import type { Strictness } from '../engine/candidates';
+import { readStrictness, type Strictness } from '../engine/candidates';
 import { gameFileText, readGameFile } from '../stats/gamefile';
 
 /**
@@ -102,8 +102,6 @@ type Settings = {
   gameSize: GameSize;
   strictness: Strictness;
   units: Units;
-  /** House rule: use supervisor districts as the 4th administrative division. */
-  supervisorDistrictsAsAdmin4: boolean;
   /**
    * Also save finished rounds to the team's history on the server.
    *
@@ -276,12 +274,11 @@ export const useGame = create<State>()(
          * would leave 48 zones standing and look broken. The trade-off is real
          * and stated in Map → settings — a hider standing near the edge of
          * their circle can truthfully give an answer that rules their own zone
-         * out — and 'conservative' is still there for anyone who wants the
+         * out — and 'loose' is still there for anyone who wants the
          * never-wrong reading.
          */
         strictness: 'strict',
         units: 'imperial',
-        supervisorDistrictsAsAdmin4: false,
       },
       visibleLayers: [],
       hiddenOverlays: [],
@@ -504,9 +501,11 @@ export const useGame = create<State>()(
         const incoming = read.file.rounds.filter((r) => !existing.has(r.id));
         // Whether rounds are shared is this device's decision, not the file's.
         const { shareHistory: _ignored, ...settings } = read.file.settings;
+        // A file from before 'loose' says 'conservative'.
+        const strictness = readStrictness(settings.strictness) ?? get().settings.strictness;
         set({
           rounds: [...get().rounds, ...incoming],
-          settings: { ...get().settings, ...settings },
+          settings: { ...get().settings, ...settings, strictness },
         });
         return { ok: true };
       },
@@ -514,7 +513,7 @@ export const useGame = create<State>()(
     {
       name: 'jetleg-sf',
       storage: createJSONStorage(() => idbStorage),
-      version: 2,
+      version: 3,
       /**
        * A stored setting outlives a change of default, so v1 devices would have
        * kept eliminating by the whole 500 m circle no matter what the code now
@@ -524,6 +523,10 @@ export const useGame = create<State>()(
       migrate: (persisted: any, version: number) => {
         if (version < 2 && persisted?.settings?.strictness === 'conservative') {
           persisted.settings.strictness = 'strict';
+        }
+        // 'conservative' became 'loose' (cut zones): someone who chose it since v2 keeps the same intent.
+        if (version < 3 && persisted?.settings?.strictness === 'conservative') {
+          persisted.settings.strictness = 'loose';
         }
         return persisted;
       },
