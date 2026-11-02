@@ -1,6 +1,7 @@
 import { get as idbGet, set as idbSet } from 'idb-keyval';
 import { supabase } from './client';
 import type { GamePayload } from './payload';
+import { writeRound } from './write';
 
 const QUEUE_KEY = 'sync/queue';
 
@@ -14,19 +15,7 @@ async function setQueue(queue: GamePayload[]): Promise<void> {
 
 async function push(payload: GamePayload): Promise<boolean> {
   if (!supabase) return false;
-
-  const { error: sessionError } = await supabase.from('sessions').insert(payload.session);
-  if (sessionError) return false;
-
-  const { error: roundError } = await supabase.from('rounds').insert(payload.round);
-  if (roundError) return false;
-
-  if (payload.asks.length > 0) {
-    const { error: asksError } = await supabase.from('asks').insert(payload.asks);
-    if (asksError) return false;
-  }
-
-  return true;
+  return (await writeRound(supabase, payload)).ok;
 }
 
 /**

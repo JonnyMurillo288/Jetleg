@@ -11,7 +11,19 @@ import {
 import { metresCached, toUTMCached } from './project';
 import { layerIndex, nearestProjected, nearestTo } from './spatial';
 
+/** The hiding-zone radius when a map does not choose one: the built-in board's, and the rulebook's for small and medium games. */
 export const ZONE_RADIUS_M = 500;
+
+/**
+ * The hiding-zone radius of the board in play. A map may choose its own
+ * (`rules.zoneRadiusM`), so this belongs to the board, like the projection:
+ * `enterBoard` sets it, and every zone circle is built from it.
+ */
+let boardZoneRadiusM = ZONE_RADIUS_M;
+export const zoneRadius = (): number => boardZoneRadiusM;
+export function setZoneRadius(m: number): void {
+  boardZoneRadiusM = m > 0 ? m : ZONE_RADIUS_M;
+}
 
 /**
  * How strictly to eliminate.
@@ -63,11 +75,12 @@ function stationSetKey(stations: Station[]): string {
 }
 
 const zoneCache = new Map<string, Feature<Polygon>>();
-export function zoneOf(station: Station): Feature<Polygon> {
-  const key = stationKey(station);
+/** A station's hiding zone: by default at the radius of the board in play. */
+export function zoneOf(station: Station, radiusM: number = boardZoneRadiusM): Feature<Polygon> {
+  const key = `${stationKey(station)}r${radiusM}`;
   let z = zoneCache.get(key);
   if (!z) {
-    z = circleOf([station.lon, station.lat], ZONE_RADIUS_M, { steps: 64, units: 'meters' }) as Feature<Polygon>;
+    z = circleOf([station.lon, station.lat], radiusM, { steps: 64, units: 'meters' }) as Feature<Polygon>;
     if (zoneCache.size > 5_000) zoneCache.clear();
     zoneCache.set(key, z);
   }
@@ -136,7 +149,7 @@ function verdictsFor(
   stations: Station[],
   strictness: Strictness,
 ): { yes: Set<string>; no: Set<string> } {
-  const key = `${sig}|${strictness}|${stationSetKey(stations)}`;
+  const key = `${sig}|${strictness}|${stationSetKey(stations)}|r${boardZoneRadiusM}`;
   let v = verdictCache.get(key);
   if (v) return v;
 

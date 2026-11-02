@@ -1,14 +1,20 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MultiPolygon, Polygon } from 'geojson';
 import type { GameData } from '../data/load';
 import { LAYER_DEFS, VORONOI_KEYS } from '../data/layers';
 import type { GameSize, LngLat, Mode } from '../engine/types';
 import type { Account } from '../community/account';
 import { publishMap, publishVersion } from '../community/api';
-import { CITY, checkMap } from '../community/board';
+import { CITY, checkMap, radiusOf } from '../community/board';
+import { clashGraph, simplifyStations } from '../community/simplify';
+import { combine, idsInShape } from './select';
+import { ZONE_RADIUS_M } from '../engine/candidates';
 import {
   MAP_FILE_SUFFIX,
   MAX_STATIONS,
+  MAX_ZONE_RADIUS_M,
+  MIN_ZONE_RADIUS_M,
+  clampZoneRadius,
   describeDiff,
   diffStations,
   parseMapFile,
@@ -29,7 +35,9 @@ import {
   fetchPois,
   fetchStations,
   fetchTransitLines,
+  prefetchBoard,
   searchPlaces,
+  spaceOut,
   type Place,
 } from '../community/osm';
 import {
@@ -43,6 +51,7 @@ import {
   polygonFromTaps,
   simplifyBoundary,
 } from '../community/pack';
+import { countryName, flagOf } from '../community/cities';
 import { AccountBox } from '../ui/AccountBox';
 
 /**
@@ -74,6 +83,26 @@ export type EditorState = {
   drawing: LngLat[] | null;
   /** Points, stations or the boundary changed since the cells were last built. */
   cellsStale: boolean;
+  /**
+   * Select mode: a tap on a station (Stations tab) or a place (Places tab)
+   * adds it to or takes it out of `picked`, instead of adding a new one.
+   */
+  picking: boolean;
+  /** Ids selected for a bulk edit: stations, or places of the open category. */
+  picked: string[];
+  /** Earlier drafts, newest first, for Undo. Drafts are immutable, so this shares nearly everything. */
+  undo: MapFile[];
+  /**
+   * How a selection is made: a tap toggles one thing; a rectangle or a lasso
+   * is dragged across the map; a polygon is tapped corner by corner.
+   */
+  shape: 'tap' | 'rect' | 'lasso' | 'polygon';
+  /** A shape adds what it covers to the selection, or takes it out. */
+  shapeMode: 'add' | 'remove';
+  /** Stations: the shape must hold the station's point, or only touch its hiding zone. */
+  shapeMatch: 'points' | 'zones';
+  /** Corners of a polygon selection being tapped out. */
+  shapePts: LngLat[] | null;
 };
 
 export const newEditor = (draft: MapFile, target: EditorTarget): EditorState => ({
@@ -87,7 +116,33 @@ export const newEditor = (draft: MapFile, target: EditorTarget): EditorState => 
   showCells: false,
   drawing: null,
   cellsStale: draft.kind === 'pack',
+  picking: false,
+  picked: [],
+  undo: [],
+  shape: 'tap',
+  shapeMode: 'add',
+  shapeMatch: 'points',
+  shapePts: null,
 });
+
+/** The things a selection shape can pick on the tab that is open, with where each is. */
+function pickable(e: EditorState): { id: string; at: LngLat }[] {
+  if (e.tab === 'stations') return e.draft.stations.map((s) => ({ id: s.id, at: [s.lon, s.lat] as LngLat }));
+  if (e.tab === 'layers' && e.layerKey && e.draft.kind === 'pack') {
+    return (e.draft.layers[e.layerKey] ?? []).flatMap((f) => (f.geometry.type === 'Point' ? [{ id: f.properties.id, at: f.geometry.coordinates as LngLat }] : []));
+  }
+  return [];
+}
+
+/** A drawn shape — rectangle, lasso or polygon — applied to the selection. */
+export function shapePick(e: EditorState, ring: LngLat[]): EditorState {
+  const zoneM = e.tab === 'stations' && e.shapeMatch === 'zones' ? radiusOf(e.draft) : undefined;
+  const hit = idsInShape(pickable(e), ring, zoneM);
+  return { ...e, picking: true, picked: combine(e.picked, hit, e.shapeMode), shapePts: null };
+}
+
+/** Add an id to the selection, or take it out. */
+const toggle = (ids: string[], id: string) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
 
 const isPointLayer = (key: string | null) => !!key && LAYER_DEFS.some((d) => d.key === key && d.kind === 'point');
 
@@ -97,6 +152,14 @@ const isPointLayer = (key: string | null) => !!key && LAYER_DEFS.some((d) => d.k
  */
 export function editorTap(e: EditorState, ll: LngLat, hit?: Selection): EditorState {
   if (e.drawing) return { ...e, drawing: [...e.drawing, ll] };
+  // Selecting: a tap on a thing toggles it; a tap on empty map does nothing.
+  if (e.picking) {
+    // A polygon is tapped out corner by corner, wherever the taps land.
+    if (e.shape === 'polygon') return { ...e, shapePts: [...(e.shapePts ?? []), ll] };
+    if (e.tab === 'stations' && hit?.type === 'station') return { ...e, picked: toggle(e.picked, hit.id) };
+    if (e.tab === 'layers' && hit?.type === 'poi' && hit.key === e.layerKey) return { ...e, picked: toggle(e.picked, hit.id) };
+    return e;
+  }
   if (e.tab === 'stations') {
     return hit?.type === 'station' ? { ...e, selected: hit, pending: null } : { ...e, pending: ll, selected: null };
   }
@@ -161,9 +224,25 @@ export function Editor(props: Props) {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
-  /** Any edit that moves a point, a station or the boundary leaves the cells behind. */
+  /**
+   * Any edit that moves a point, a station or the boundary leaves the cells
+   * behind. Every edit made through here can be undone.
+   */
   const patch = (d: Partial<MapFile>, more: Partial<EditorState> = {}, stale = true) =>
-    onChange({ ...editor, draft: { ...draft, ...d } as MapFile, cellsStale: editor.cellsStale || (stale && !!pack), ...more });
+    onChange({
+      ...editor,
+      draft: { ...draft, ...d } as MapFile,
+      cellsStale: editor.cellsStale || (stale && !!pack),
+      undo: [draft, ...editor.undo].slice(0, 40),
+      ...more,
+    });
+  const undo = () => {
+    const [previous, ...older] = editor.undo;
+    if (!previous) return;
+    // The cells are rebuilt from the points anyway; marking them stale is always safe.
+    onChange({ ...editor, draft: previous, undo: older, picked: [], selected: null, pending: null, cellsStale: editor.cellsStale || !!pack });
+    setNote('Undone.');
+  };
 
   const problems = useMemo(() => checkMap(draft, base.boundary), [draft.stations, pack?.boundary, draft.city, base.boundary]);
   const blocking = problems.some((p) => p.blocking);
@@ -197,7 +276,10 @@ export function Editor(props: Props) {
 
   return (
     <div className="pad community editor">
-      <button className="link" onClick={() => confirm('Close this draft? Unpublished changes are lost.') && props.onClose()}>← Close draft</button>
+      <div className="row editorhead">
+        <button className="link grow" onClick={() => confirm('Close this draft? Unpublished changes are lost.') && props.onClose()}>← Close draft</button>
+        <button disabled={!editor.undo.length} onClick={undo} title="Undo the last change">↶ Undo{editor.undo.length ? ` (${editor.undo.length})` : ''}</button>
+      </div>
       <h2>
         {draft.name.trim() || (pack ? 'New city map' : 'New station map')}
         <span className="tag">{pack ? 'full city' : 'stations on the SF board'}</span>
@@ -208,7 +290,7 @@ export function Editor(props: Props) {
       <div className="seg wide flush tabs">
         {tabs.map(([key, label]) => (
           <button key={key} className={editor.tab === key ? 'on' : ''}
-            onClick={() => onChange({ ...editor, tab: key, pending: null, selected: null, drawing: null })}>
+            onClick={() => onChange({ ...editor, tab: key, pending: null, selected: null, drawing: null, picking: false, picked: [], shapePts: null })}>
             {label}
           </button>
         ))}
@@ -264,6 +346,86 @@ function FileButton(props: { label: string; onText: (text: string, name: string)
   );
 }
 
+// ------------------------------------------------------------------- selecting
+
+/**
+ * Select mode and the selection, for stations or for the places of one
+ * category. `points` is every candidate, by id, with where it is.
+ */
+const SHAPES: [EditorState['shape'], string, string][] = [
+  ['tap', 'Tap', 'Tap one at a time'],
+  ['rect', '▭ Rectangle', 'Drag across the map to draw a rectangle'],
+  ['lasso', '◯ Lasso', 'Draw around them, freehand'],
+  ['polygon', '⬠ Polygon', 'Tap each corner, then Done'],
+];
+
+function PickBar(p: TabProps & { points: { id: string; at: LngLat }[]; noun: string; extra?: { label: string; ids: string[] }[]; zones?: boolean }) {
+  const { editor, onChange } = p;
+  const picked = new Set(editor.picked);
+  const set = (ids: string[], picking = true) => onChange({ ...editor, picked: ids, picking, selected: null, pending: null });
+  const inView = () => {
+    const b = (window as any).__map?.getBounds?.();
+    if (!b) return;
+    const ids = p.points.filter(({ at: [lon, lat] }) => lon >= b.getWest() && lon <= b.getEast() && lat >= b.getSouth() && lat <= b.getNorth()).map((x) => x.id);
+    set([...new Set([...editor.picked, ...ids])]);
+  };
+  return (
+    <div className={`pickbar ${editor.picking ? 'on' : ''}`}>
+      <div className="row">
+        <button className={editor.picking ? 'on' : ''} aria-pressed={editor.picking}
+          onClick={() => onChange({ ...editor, picking: !editor.picking, selected: null, pending: null })}>
+          {editor.picking ? '✓ Selecting' : 'Select'}
+        </button>
+        <span className="grow small">
+          {editor.picking
+            ? <><b>{picked.size}</b> selected. {SHAPES.find((s) => s[0] === editor.shape)?.[2]}{editor.shape === 'tap' ? ` to select or deselect ${p.noun}` : ''}.</>
+            : <span className="muted">Select several {p.noun} to delete or change them at once.</span>}
+        </span>
+      </div>
+      {editor.picking && (
+        <>
+          <div className="row tight-gap shapes" role="group" aria-label="How to select">
+            <div className="seg">
+              {SHAPES.map(([key, label, hint]) => (
+                <button key={key} className={editor.shape === key ? 'on' : ''} title={hint} aria-pressed={editor.shape === key}
+                  onClick={() => onChange({ ...editor, shape: key, shapePts: null })}>{label}</button>
+              ))}
+            </div>
+            {editor.shape !== 'tap' && (
+              <div className="seg">
+                <button className={editor.shapeMode === 'add' ? 'on' : ''} aria-pressed={editor.shapeMode === 'add'} onClick={() => onChange({ ...editor, shapeMode: 'add' })}>+ Add</button>
+                <button className={editor.shapeMode === 'remove' ? 'on' : ''} aria-pressed={editor.shapeMode === 'remove'} onClick={() => onChange({ ...editor, shapeMode: 'remove' })}>− Remove</button>
+              </div>
+            )}
+            {p.zones && editor.shape !== 'tap' && (
+              <div className="seg" title="Inside the shape: the station itself, or any part of its hiding zone">
+                <button className={editor.shapeMatch === 'points' ? 'on' : ''} aria-pressed={editor.shapeMatch === 'points'} onClick={() => onChange({ ...editor, shapeMatch: 'points' })}>Points</button>
+                <button className={editor.shapeMatch === 'zones' ? 'on' : ''} aria-pressed={editor.shapeMatch === 'zones'} onClick={() => onChange({ ...editor, shapeMatch: 'zones' })}>Zones</button>
+              </div>
+            )}
+          </div>
+          {editor.shape === 'polygon' && (
+            <div className="row tight-gap">
+              <span className="small grow">{editor.shapePts?.length ? `${editor.shapePts.length} corner${editor.shapePts.length === 1 ? '' : 's'}` : 'Tap the first corner on the map.'}</span>
+              <button className="small primary" disabled={(editor.shapePts?.length ?? 0) < 3} onClick={() => onChange(shapePick(editor, editor.shapePts!))}>Done</button>
+              <button className="small" disabled={!editor.shapePts?.length} onClick={() => onChange({ ...editor, shapePts: null })}>Clear</button>
+            </div>
+          )}
+        </>
+      )}
+      {editor.picking && (
+        <div className="row tight-gap">
+          <button className="small" onClick={() => set(p.points.map((x) => x.id))}>All</button>
+          <button className="small" onClick={inView}>All in view</button>
+          <button className="small" onClick={() => set(p.points.map((x) => x.id).filter((id) => !picked.has(id)))}>Invert</button>
+          {p.extra?.map((x) => <button key={x.label} className="small" onClick={() => set(x.ids)}>{x.label}</button>)}
+          <button className="small" disabled={!picked.size} onClick={() => set([])}>None</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // --------------------------------------------------------------------- details
 
 function DetailsTab(p: TabProps) {
@@ -279,6 +441,16 @@ function DetailsTab(p: TabProps) {
         <label className="field">
           <span>City <span className="muted">(a short label people can search by)</span></span>
           <input type="text" value={draft.city} maxLength={24} placeholder="e.g. oakland" onChange={(e) => set({ city: e.target.value.toLowerCase() })} />
+        </label>
+      )}
+      {p.pack && (
+        <label className="field">
+          <span>
+            Country code <span className="muted">(two letters — for the flag beside the city)</span>
+            {draft.country && <> · {flagOf(draft.country)} {countryName(draft.country) ?? 'not a country code'}</>}
+          </span>
+          <input type="text" className="countrycode" value={draft.country ?? ''} maxLength={2} placeholder="e.g. US" autoCapitalize="characters"
+            onChange={(e) => set({ country: e.target.value.replace(/[^a-zA-Z]/g, '').toLowerCase() || undefined })} />
         </label>
       )}
       <label className="field">
@@ -335,9 +507,15 @@ function BoundaryTab(p: TabProps & { pack: PackMap }) {
     places: LAYER_DEFS.reduce((n, d) => n + (pack.layers[d.key]?.length ?? 0) - clipToBoundary(pack.layers[d.key] ?? [], pack.boundary).kept.length, 0),
   }), [pack.boundary, pack.stations, pack.layers]);
 
-  const use = (geometry: Polygon | MultiPolygon, what: string) => {
+  // One patch, not two: each starts from the draft as rendered, so a second
+  // call in the same tap would undo the first.
+  const use = (geometry: Polygon | MultiPolygon, what: string, country?: string) => {
     const land = largestLandmass(geometry);
-    p.patch({ boundary: land.polygon } as Partial<PackMap>, { drawing: null });
+    // The place says what country it is in; a map that already names one keeps it.
+    const named = country && !editor.draft.country ? { country } : {};
+    p.patch({ boundary: land.polygon, ...named } as Partial<PackMap>, { drawing: null });
+    // Stations, places and lines all come from one request; start it now.
+    prefetchBoard(land.polygon);
     p.setNote(`${what}: ${km2(land.km2)} km²${land.dropped ? `, keeping the largest piece and dropping ${land.dropped} smaller one${land.dropped === 1 ? '' : 's'} (islands, exclaves)` : ''}.`);
   };
 
@@ -363,7 +541,7 @@ function BoundaryTab(p: TabProps & { pack: PackMap }) {
           {places.map((pl) => (
             <li key={pl.name}>
               <button className="link grow" onClick={() => p.onLookAt(pl.bbox)}>{pl.name}</button>
-              <button onClick={() => { use(pl.geometry, 'Boundary set from OpenStreetMap'); setPlaces(null); }}>Use</button>
+              <button onClick={() => { use(pl.geometry, 'Boundary set from OpenStreetMap', pl.country); setPlaces(null); }}>Use</button>
             </li>
           ))}
         </ul>
@@ -444,6 +622,61 @@ function StationsTab(p: TabProps) {
   const count = draft.stations.length;
   const selected = editor.selected?.type === 'station' ? draft.stations.find((s) => s.id === editor.selected!.id) ?? null : null;
   const changes = useMemo(() => describeDiff(diffStations(editor.original, draft.stations)), [editor.original, draft.stations]);
+  const radius = radiusOf(draft);
+  const [radiusText, setRadiusText] = useState(String(radius));
+  // Follows the map's own value, which Undo can change underneath the box.
+  useEffect(() => setRadiusText(String(radius)), [radius]);
+  const [spacing, setSpacing] = useState<'none' | 'slight' | 'half'>('none');
+  const [keepPicked, setKeepPicked] = useState(false);
+  // The selection Simplify last proposed. While that is still what is selected,
+  // "keep the selected" would mean "keep what it says to remove", so it is not offered.
+  const [proposal, setProposal] = useState<string[] | null>(null);
+  const ownSelection = editor.picked.length > 0 && editor.picked !== proposal;
+  const picked = new Set(editor.picked);
+  const pickedStations = draft.stations.filter((s) => picked.has(s.id));
+  /** Pairs of zones that overlap at this radius. */
+  const overlaps = useMemo(
+    () => clashGraph(draft.stations, 2 * radius).reduce((n, nb, i) => n + nb.filter((j) => j > i).length, 0),
+    [draft.stations, radius],
+  );
+
+  /** The map's hiding-zone radius. The default is left out of the file, so a map that never chose one is unchanged. */
+  const setRadius = (m: number) => {
+    const r = clampZoneRadius(m);
+    setRadiusText(String(r));
+    const { zoneRadiusM: _old, ...rules } = draft.rules;
+    p.patch({ rules: r === ZONE_RADIUS_M ? rules : { ...rules, zoneRadiusM: r } }, {}, false);
+  };
+
+  const removePicked = () => {
+    if (!pickedStations.length) return;
+    if (pickedStations.length > 1 && !confirm(`Delete ${pickedStations.length} stations? Undo brings them back.`)) return;
+    p.patch({ stations: draft.stations.filter((s) => !picked.has(s.id)) }, { picked: [], selected: null });
+    p.setNote(`${pickedStations.length} station${pickedStations.length === 1 ? '' : 's'} deleted.`);
+  };
+  /** A transit type on every selected station — or, if they all have it already, off every one that has another. */
+  const toggleMode = (m: Mode) => {
+    const all = pickedStations.every((s) => s.modes.includes(m));
+    p.patch({
+      stations: draft.stations.map((s) => {
+        if (!picked.has(s.id)) return s;
+        const modes = all ? s.modes.filter((x) => x !== m) : [...new Set([...s.modes, m])];
+        return modes.length ? { ...s, modes } : s;
+      }),
+    });
+  };
+
+  const simplify = () => {
+    const minSpacingM = spacing === 'none' ? 2 * radius : spacing === 'slight' ? 1.5 * radius : radius;
+    const res = simplifyStations(draft.stations, { minSpacingM, keep: keepPicked && ownSelection ? editor.picked : [] });
+    // The selection becomes what to remove, so "keep the selected" no longer means the same thing.
+    setKeepPicked(false);
+    setProposal(res.remove);
+    p.onChange({ ...editor, picking: true, picked: res.remove, selected: null, pending: null });
+    p.setNote(res.remove.length
+      ? `Removing the ${res.remove.length} selected would leave ${res.kept} of ${count} stations, with ${res.clashesAfter ? `${res.clashesAfter} overlapping pairs` : 'no zones overlapping'} (${res.clashesBefore} now). They are selected on the map: look them over, deselect any you want to keep, then delete.`
+      : 'Nothing to remove: no two stations are that close.');
+  };
 
   const add = () => {
     const clean = name.trim();
@@ -459,23 +692,71 @@ function StationsTab(p: TabProps) {
   const update = (change: Partial<MapStation>) =>
     selected && p.patch({ stations: draft.stations.map((s) => (s.id === selected.id ? { ...s, ...change } : s)) });
 
-  const replace = (stations: MapStation[], how: string) => {
-    if (stations.length > MAX_STATIONS) {
-      p.setError(`That gives ${stations.length} stations; a map can have at most ${MAX_STATIONS}. Leave out bus stops, or use a smaller boundary.`);
-      return;
-    }
+  const replace = (all: MapStation[], how: string) => {
+    // Over the cap, keep the most evenly spread ones rather than refuse.
+    const stations = spaceOut(all, MAX_STATIONS);
     if (count && !confirm(`Replace the ${count} stations here with ${stations.length} ${how}?`)) return;
     p.patch({ stations }, { pending: null, selected: null });
-    p.setNote(`${stations.length} stations ${how}.`);
+    p.setNote(stations.length < all.length
+      ? `${stations.length} stations ${how}: ${all.length} was over the limit of ${MAX_STATIONS}, so they were spaced out evenly across the board, rail, metro, tram and ferry first.`
+      : `${stations.length} stations ${how}.`);
   };
 
   return (
     <>
       <p className="muted small">
-        Each station is a hiding zone: a 500 m circle around it. Tap the map to add one; tap a station to
+        Each station is a hiding zone: the circle around it. Tap the map to add one; tap a station to
         rename, retype or remove it.{editor.original.length > 0 && <> So far: {changes}.</>}
       </p>
-      <div className="boardnow"><strong>{count} stations</strong></div>
+
+      <h3>Hiding zone size</h3>
+      <div className="row radiusrow">
+        <div className="seg">
+          {[250, 400, 500, 800, 1000].map((m) => (
+            <button key={m} className={radius === m ? 'on' : ''} onClick={() => setRadius(m)}>{m < 1000 ? `${m} m` : `${m / 1000} km`}</button>
+          ))}
+        </div>
+        <label className="radiusin small">
+          <input type="number" min={MIN_ZONE_RADIUS_M} max={MAX_ZONE_RADIUS_M} step={10} value={radiusText}
+            onChange={(e) => setRadiusText(e.target.value)}
+            onBlur={() => { const v = Number(radiusText); if (Number.isFinite(v) && v > 0) setRadius(v); else setRadiusText(String(radius)); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} />
+          {' '}m from each station
+        </label>
+      </div>
+      <p className="muted small">
+        How far a hider may be from their station. {ZONE_RADIUS_M} m is the built-in board’s. Everyone playing this map
+        plays at this size.
+      </p>
+
+      <div className="boardnow">
+        <strong>{count} stations</strong>
+        <span className="muted small">{overlaps ? `${overlaps} pair${overlaps === 1 ? '' : 's'} of zones overlap` : 'No zones overlap'}</span>
+      </div>
+
+      <PickBar {...p} noun="stations" zones
+        points={draft.stations.map((s) => ({ id: s.id, at: [s.lon, s.lat] as LngLat }))}
+        extra={[{ label: 'Bus-only', ids: draft.stations.filter((s) => s.modes.every((m) => m === 'bus')).map((s) => s.id) }]} />
+      {editor.picking && pickedStations.length > 0 && (
+        <div className="hint fact bulk">
+          <div className="row">
+            <b className="grow">{pickedStations.length} selected</b>
+            <button className="danger" onClick={removePicked}>Delete {pickedStations.length}</button>
+          </div>
+          <div className="row tight-gap">
+            <span className="small muted">Type:</span>
+            {MODES.map((m) => {
+              const n = pickedStations.filter((s) => s.modes.includes(m)).length;
+              return (
+                <button key={m} className={`small ${n === pickedStations.length ? 'on' : n ? 'some' : ''}`} onClick={() => toggleMode(m)}
+                  title={n === pickedStations.length ? `Take ${m} off all of them` : `Make all of them ${m}`}>
+                  {m}{n > 0 && n < pickedStations.length ? ` (${n})` : ''}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {editor.pending && (
         <div className="hint fact">
@@ -488,7 +769,7 @@ function StationsTab(p: TabProps) {
         </div>
       )}
 
-      {selected && (
+      {selected && !editor.picking && (
         <div className="hint fact">
           <div className="row">
             <input type="text" className="grow" value={selected.name} maxLength={80} onChange={(e) => update({ name: e.target.value })} />
@@ -515,16 +796,37 @@ function StationsTab(p: TabProps) {
         <p key={x.text} className={`hint ${x.blocking ? 'warn' : ''} small`}>{x.blocking ? 'Can’t be played: ' : 'Worth a look: '}{x.text}</p>
       ))}
 
+      <h3>Simplify</h3>
+      <p className="muted small">
+        Overlapping zones put the same ground in two hiding zones at once. Simplify finds the fewest stations to
+        remove so the rest don’t overlap, keeping rail and metro stations over bus stops when it has a choice.
+        Nothing is deleted until you say so.
+      </p>
+      <div className="row">
+        <select value={spacing} onChange={(e) => setSpacing(e.target.value as typeof spacing)} aria-label="How much overlap to allow">
+          <option value="none">No overlap at all — stations at least {2 * radius} m apart</option>
+          <option value="slight">A little overlap — at least {1.5 * radius} m apart</option>
+          <option value="half">Up to half — at least {radius} m apart</option>
+        </select>
+      </div>
+      {ownSelection && (
+        <label className="check small">
+          <input type="checkbox" checked={keepPicked} onChange={(e) => setKeepPicked(e.target.checked)} />
+          <span>Keep the {editor.picked.length} selected stations, whatever they overlap</span>
+        </label>
+      )}
+      <button className="primary" disabled={count < 2} onClick={simplify}>Find stations to remove</button>
+
       {p.pack && (
         <>
           <h3>From OpenStreetMap</h3>
           <div className="row">
             <button disabled={!!p.busy} onClick={() => runTool(p, 'Fetching rail, metro, tram and ferry stops', async (w) => {
-              const got = await fetchStations(p.pack!.boundary, false, undefined, w);
+              const got = await fetchStations(p.pack!.boundary, false, w);
               replace(got.stations, 'from OpenStreetMap');
             })}>Rail, metro, tram and ferry stops</button>
             <button disabled={!!p.busy} onClick={() => runTool(p, 'Fetching every transit stop', async (w) => {
-              const got = await fetchStations(p.pack!.boundary, true, undefined, w);
+              const got = await fetchStations(p.pack!.boundary, true, w);
               replace(got.stations, 'from OpenStreetMap, bus stops included');
             })}>…and bus stops</button>
           </div>
@@ -558,14 +860,42 @@ function LayersTab(p: TabProps & { pack: PackMap }) {
   const setLayer = (key: string, feats: LayerFeature[], said?: string) => {
     const layers = { ...pack.layers };
     if (feats.length) layers[key] = feats; else delete layers[key];
-    p.patch({ layers } as Partial<PackMap>, { pending: null, selected: null });
+    p.patch({ layers } as Partial<PackMap>, { pending: null, selected: null, picked: [] });
     if (said) p.setNote(said);
   };
 
+  const pickedSet = new Set(editor.picked);
+  const pickedPlaces = features.filter((f) => pickedSet.has(f.properties.id));
+  const pointDefs = LAYER_DEFS.filter((d) => d.kind === 'point' && d.key !== def?.key);
+  const deletePicked = () => {
+    if (!def || !pickedPlaces.length) return;
+    if (pickedPlaces.length > 1 && !confirm(`Delete ${pickedPlaces.length} ${def.label.toLowerCase()}? Undo brings them back.`)) return;
+    setLayer(def.key, features.filter((f) => !pickedSet.has(f.properties.id)), `${pickedPlaces.length} deleted.`);
+  };
+  /** A goat pen tagged as a zoo, say: into the right category, in one go. */
+  const movePicked = (to: string) => {
+    if (!def || !pickedPlaces.length) return;
+    const target = LAYER_DEFS.find((d) => d.key === to);
+    if (!target) return;
+    const there = pack.layers[to] ?? [];
+    const used = new Set(there.map((f) => f.properties.id));
+    const moved = pickedPlaces.map((f) => {
+      let id = f.properties.id;
+      for (let n = 2; used.has(id); n++) id = `${f.properties.id}-${n}`;
+      used.add(id);
+      return { ...f, id, properties: { ...f.properties, id } };
+    });
+    const layers = { ...pack.layers, [to]: [...there, ...moved] };
+    const left = features.filter((f) => !pickedSet.has(f.properties.id));
+    if (left.length) layers[def.key] = left; else delete layers[def.key];
+    p.patch({ layers } as Partial<PackMap>, { pending: null, selected: null, picked: [] });
+    p.setNote(`${moved.length} moved to ${target.label}.`);
+  };
+
   const fetchOne = async (key: string, onWait: (s: number) => void): Promise<string> => {
-    if (key === 'transitLines') { const f = await fetchTransitLines(pack.boundary, undefined, onWait); return apply(key, f, `${f.length} transit lines`); }
-    if (key === 'coastline') { const f = await fetchCoastline(pack.boundary, undefined, onWait); return apply(key, f, `${f.length} stretches of coastline`); }
-    const got = await fetchPois(key, pack.boundary, undefined, onWait);
+    if (key === 'transitLines') { const f = await fetchTransitLines(pack.boundary, onWait); return apply(key, f, `${f.length} transit lines`); }
+    if (key === 'coastline') { const f = await fetchCoastline(pack.boundary, onWait); return apply(key, f, `${f.length} stretches of coastline`); }
+    const got = await fetchPois(key, pack.boundary, onWait);
     const d = got.dropped;
     return apply(key, got.features, `${got.features.length} kept (dropped ${d.unnamed} unnamed, ${d.outside} outside the boundary, ${d.rejected} that the rules exclude, ${d.duplicates} duplicates)`);
   };
@@ -598,17 +928,17 @@ function LayersTab(p: TabProps & { pack: PackMap }) {
           category with nothing in it is simply not in play on this map.
         </p>
         <button className="primary" disabled={!!p.busy} onClick={() => runTool(p, 'Fetching every category from OpenStreetMap', async (w) => {
-          const all = await fetchAllPois(pack.boundary, undefined, w);
+          const all = await fetchAllPois(pack.boundary, w);
           const lines = Object.entries(all).map(([key, got]) => { apply(key, got.features, ''); return `${LAYER_DEFS.find((d) => d.key === key)?.label ?? key} ${got.features.length}`; });
           commit(`Fetched ${lines.length} categories. ${lines.join(' · ')}`);
         })}>
           Fetch every category from OpenStreetMap
         </button>
-        <p className="muted small">One request to a free, shared service; a large city can take a minute. Review each list afterwards — the file you publish is the ruling.</p>
+        <p className="muted small">One request to a free, shared service, started when the boundary was set; a large city can take a minute. Review each list afterwards — the file you publish is the ruling.</p>
         <ul className="list layeraudit">
           {audit.map((a) => (
             <li key={a.key}>
-              <button className="link grow" onClick={() => p.onChange({ ...editor, layerKey: a.key, showCells: false, pending: null, selected: null })}>
+              <button className="link grow" onClick={() => p.onChange({ ...editor, layerKey: a.key, showCells: false, pending: null, selected: null, picking: false, picked: [], shapePts: null })}>
                 <b>{a.label}</b> <span className="muted">· {a.count}</span>
                 <span className="muted small maprow">{a.verdict}{a.outside ? ` · ${a.outside} outside the boundary` : ''}</span>
               </button>
@@ -621,7 +951,7 @@ function LayersTab(p: TabProps & { pack: PackMap }) {
 
   return (
     <>
-      <button className="link" onClick={() => p.onChange({ ...editor, layerKey: null, pending: null, selected: null })}>← All categories</button>
+      <button className="link" onClick={() => p.onChange({ ...editor, layerKey: null, pending: null, selected: null, picking: false, picked: [], shapePts: null })}>← All categories</button>
       <h3>{def.label} <span className="muted">· {features.length}</span></h3>
       {def.key === 'railStations' && (
         <p className="muted small">Filled in automatically from the stations that are not bus-only. Import your own to override that.</p>
@@ -629,6 +959,25 @@ function LayersTab(p: TabProps & { pack: PackMap }) {
       {def.kind === 'point'
         ? <p className="muted small">Shown on the map. Tap the map to add one; tap one to rename or remove it.</p>
         : <p className="muted small">A line layer: distance is measured to the nearest point on the line. Lines can be fetched or imported, not drawn.</p>}
+
+      {def.kind === 'point' && (
+        <PickBar {...p} noun={def.label.toLowerCase()}
+          points={features.flatMap((f) => (f.geometry.type === 'Point' ? [{ id: f.properties.id, at: f.geometry.coordinates as LngLat }] : []))} />
+      )}
+      {editor.picking && pickedPlaces.length > 0 && (
+        <div className="hint fact bulk">
+          <div className="row">
+            <b className="grow">{pickedPlaces.length} selected</b>
+            <button className="danger" onClick={deletePicked}>Delete {pickedPlaces.length}</button>
+          </div>
+          <div className="row">
+            <select value="" onChange={(e) => e.target.value && movePicked(e.target.value)} aria-label="Move the selected to another category">
+              <option value="">Move to another category…</option>
+              {pointDefs.map((d) => <option key={d.key} value={d.key}>{d.label}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
 
       {editor.pending && def.kind === 'point' && (
         <div className="hint fact">
@@ -639,7 +988,7 @@ function LayersTab(p: TabProps & { pack: PackMap }) {
           </div>
         </div>
       )}
-      {selected && (
+      {selected && !editor.picking && (
         <div className="hint fact">
           <div className="row">
             <input type="text" className="grow" value={selected.properties.name} maxLength={80}

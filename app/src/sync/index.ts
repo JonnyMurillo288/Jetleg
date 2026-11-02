@@ -8,9 +8,6 @@ import { supabase } from './client';
 export { flushQueue } from './queue';
 export { getOrCreateProfile, joinOrCreateTeam } from './identity';
 
-const uid = () =>
-  globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-
 /**
  * Called only after a round is marked ended. No-op with no Supabase env
  * configured, and no-op until the player has an identity and a team — sync
@@ -23,7 +20,9 @@ export async function syncFinishedRound(round: Round, settings: SyncSettings): P
   const team = await idbGet<LocalTeam>('sync/team');
   if (!profile || !team) return;
 
-  const payload = buildGamePayload(round, settings, profile, team, uid());
+  // The round's own id as its session's: a round resumed and ended again is
+  // the same session, rewritten (write.ts), not a second one.
+  const payload = buildGamePayload(round, settings, profile, team, round.id);
   await syncOrQueue(payload);
 }
 

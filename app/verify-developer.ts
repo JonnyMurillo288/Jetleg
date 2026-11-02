@@ -10,7 +10,7 @@ import { existsSync, readFileSync } from 'node:fs';
 
 const url = process.env.SUPABASE_URL || 'http://127.0.0.1:54321';
 const mailUrl = process.env.MAILPIT_URL || 'http://127.0.0.1:54324';
-const target = process.env.TARGET || 'http://127.0.0.1:4310/';
+const target = (process.env.TARGET || 'http://127.0.0.1:4310/').replace(/#.*$/, '') + '#/play'; // the game's page; the root is the landing page
 const anonKey =
   process.env.SUPABASE_ANON_KEY ||
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
@@ -192,6 +192,27 @@ async function codeFor(email: string): Promise<string> {
   await p.evaluate(() => { location.hash = '#/maps'; });
   await p.waitForSelector('.boardnow', { timeout: 20000 });
   check('the studio says the board cannot be changed mid-round', /End your round to change boards/.test((await p.textContent('.boardnow')) ?? ''));
+
+  // ...and neither will Start a game; the landing page offers the round back instead.
+  await p.evaluate(() => { location.hash = '#/start'; });
+  await p.waitForSelector('.citypicker input', { timeout: 20000 });
+  await p.fill('.citypicker input', 'san');
+  await p.keyboard.press('Enter');
+  await p.waitForSelector('.citymaps li button', { timeout: 15000 });
+  const start = await p.evaluate(() => ({
+    warned: /round in progress/.test(document.querySelector('.hint.warn')?.textContent || ''),
+    locked: [...document.querySelectorAll<HTMLButtonElement>('.citymaps li button')].every((b) => b.disabled),
+  }));
+  check('Start a game will not change the board mid-round either', start.warned && start.locked, start);
+  await p.evaluate(() => { location.hash = '#/'; });
+  await p.waitForSelector('.landing .navcard', { timeout: 20000 });
+  const lead = await p.evaluate(() => {
+    const a = document.querySelector<HTMLAnchorElement>('.landing .navcard.primary');
+    return { text: a?.textContent ?? '', href: a?.getAttribute('href'), primaries: document.querySelectorAll('.landing .navcard.primary').length };
+  });
+  check('the landing page leads with the round in progress', /Continue your round/.test(lead.text) && lead.href === '#/play' && lead.primaries === 1, lead);
+  await p.click('.landing .navcard.primary');
+  check('...and continuing it goes back into the round', await p.waitForSelector('.qrow', { timeout: 20000 }).then(() => true, () => false));
 
   check('no page errors', errors.length === 0, errors);
   await browser.close();

@@ -16,6 +16,8 @@ export type MapSummary = {
   authorName: string;
   kind: string;
   city: string;
+  /** ISO 3166-1 alpha-2, lowercase; null when the map does not say. */
+  country: string | null;
   parentMapId: string | null;
   parentVersionId: string | null;
   /** Name of the map this was branched from, kept even after that map is deleted. */
@@ -68,7 +70,7 @@ const explain = (message: string | undefined) =>
   !message || /fetch|network/i.test(message) ? 'Could not reach the server. Check your connection.' : message;
 
 const MAP_COLUMNS =
-  'id, name, description, author_id, author_name, kind, city, parent_map_id, parent_version_id, parent_map_name, head_version_id, ' +
+  'id, name, description, author_id, author_name, kind, city, country, parent_map_id, parent_version_id, parent_map_name, head_version_id, ' +
   'station_count, version_count, like_count, dislike_count, comment_count, branch_count, created_at, updated_at';
 
 type MapRow = Record<string, any>;
@@ -80,6 +82,7 @@ const toSummary = (r: MapRow): MapSummary => ({
   authorName: r.author_name,
   kind: r.kind,
   city: r.city,
+  country: r.country ?? null,
   parentMapId: r.parent_map_id,
   parentVersionId: r.parent_version_id,
   parentMapName: r.parent_map_name,
@@ -94,9 +97,11 @@ const toSummary = (r: MapRow): MapSummary => ({
   updatedAt: r.updated_at,
 });
 
-export async function listMaps(sort: Sort): Promise<Result<MapSummary[]>> {
+/** Published maps; with `city`, only the ones filed under that city label. */
+export async function listMaps(sort: Sort, city?: string): Promise<Result<MapSummary[]>> {
   if (!supabase) return fail(NOT_CONFIGURED);
   let query = supabase.from('community_maps').select(MAP_COLUMNS);
+  if (city) query = query.eq('city', city);
   query = sort === 'top'
     ? query.order('like_count', { ascending: false }).order('updated_at', { ascending: false })
     : query.order('updated_at', { ascending: false });
@@ -143,6 +148,22 @@ export async function getMap(id: string): Promise<Result<MapDetail>> {
   };
 }
 
+export type CityRow = { city: string; country: string | null; mapCount: number };
+
+/**
+ * Every city that has a published map, with its number of main maps (not
+ * branches). The count arrives already capped — see 0011_city_directory.sql.
+ */
+export async function listCities(): Promise<Result<CityRow[]>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { data, error } = await supabase.from('community_cities').select('city, country, map_count').limit(2000);
+  if (error) return fail(explain(error.message));
+  return {
+    ok: true,
+    value: (data as MapRow[]).map((r) => ({ city: r.city, country: r.country ?? null, mapCount: r.map_count ?? 0 })),
+  };
+}
+
 /** One version's map, run through the same validator as a file off disk. */
 export async function getVersionContent(versionId: string): Promise<Result<MapFile>> {
   if (!supabase) return fail(NOT_CONFIGURED);
@@ -151,6 +172,16 @@ export async function getVersionContent(versionId: string): Promise<Result<MapFi
   if (!data) return fail('That version no longer exists.');
   const parsed = parseMapFile(data.content);
   return parsed.ok ? { ok: true, value: parsed.map } : fail(parsed.error);
+}
+
+/** One version's map and the published map it belongs to — to put a round's board back. */
+export async function getVersion(versionId: string): Promise<Result<{ mapId: string; map: MapFile }>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { data, error } = await supabase.from('community_map_versions').select('map_id, content').eq('id', versionId).maybeSingle();
+  if (error) return fail(explain(error.message));
+  if (!data) return fail('That version of the map no longer exists.');
+  const parsed = parseMapFile(data.content);
+  return parsed.ok ? { ok: true, value: { mapId: data.map_id, map: parsed.map } } : fail(parsed.error);
 }
 
 /** A new map; with `parentVersionId`, a branch of the map that version belongs to. */

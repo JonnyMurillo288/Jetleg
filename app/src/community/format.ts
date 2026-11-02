@@ -53,6 +53,8 @@ export type MapStation = {
 /** House rules a map can pin. Absent means "whatever the player has set". */
 export type MapRules = {
   gameSize?: GameSize;
+  /** How far from its station a hiding zone reaches, in metres. Absent: 500 m. */
+  zoneRadiusM?: number;
   supervisorDistrictsAsAdmin4?: boolean;
 };
 
@@ -61,6 +63,12 @@ type MapCommon = {
   formatVersion: typeof MAP_FORMAT_VERSION;
   /** A station map: the shipped board it plays on. A pack: a short label for its own city. */
   city: string;
+  /**
+   * The country the map is in: ISO 3166-1 alpha-2, lowercase ('us', 'jp').
+   * Only used to show a flag beside the city. Optional — maps made before
+   * it existed have none, and are listed without a flag.
+   */
+  country?: string;
   name: string;
   description: string;
   rules: MapRules;
@@ -96,6 +104,18 @@ const bad = (error: string): Parsed => ({ ok: false, error });
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
+
+/** The hiding-zone radii a map may choose, in metres. */
+export const MIN_ZONE_RADIUS_M = 100;
+export const MAX_ZONE_RADIUS_M = 2000;
+export const clampZoneRadius = (m: number): number =>
+  Math.round(Math.min(MAX_ZONE_RADIUS_M, Math.max(MIN_ZONE_RADIUS_M, m)));
+
+/** A two-letter country code, lowercased; '' for anything else. */
+export function countryCode(v: unknown): string {
+  const code = typeof v === 'string' ? v.trim().toLowerCase() : '';
+  return /^[a-z]{2}$/.test(code) ? code : '';
+}
 
 /** The pipeline's own id style: lowercase letters and digits, nothing else. */
 export function slugId(name: string): string {
@@ -157,6 +177,8 @@ export function parseMapFile(raw: unknown): Parsed {
   const rules: MapRules = {};
   if (isObject(raw.rules)) {
     if (SIZES.includes(raw.rules.gameSize as GameSize)) rules.gameSize = raw.rules.gameSize as GameSize;
+    const r = raw.rules.zoneRadiusM;
+    if (typeof r === 'number' && Number.isFinite(r)) rules.zoneRadiusM = clampZoneRadius(r);
     if (typeof raw.rules.supervisorDistrictsAsAdmin4 === 'boolean') {
       rules.supervisorDistrictsAsAdmin4 = raw.rules.supervisorDistrictsAsAdmin4;
     }
@@ -169,6 +191,7 @@ export function parseMapFile(raw: unknown): Parsed {
     format: MAP_FORMAT,
     formatVersion: MAP_FORMAT_VERSION,
     city,
+    ...(countryCode(raw.country) ? { country: countryCode(raw.country) } : {}),
     name,
     description: str(raw.description, MAX_DESCRIPTION),
     rules,
@@ -357,6 +380,8 @@ export function serializeMap(map: MapFile): string {
     formatVersion: map.formatVersion,
     kind: map.kind,
     city: map.city,
+    // Absent rather than empty, so a map without one serializes as it always did.
+    ...(countryCode(map.country) ? { country: countryCode(map.country) } : {}),
     name: map.name,
     description: map.description,
     rules: map.rules,

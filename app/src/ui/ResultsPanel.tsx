@@ -1,11 +1,8 @@
 import { useMemo, useState } from 'react';
 import type { GameData } from '../data/load';
 import { useGame, type Round } from '../store/game';
-import { evaluate } from '../engine/candidates';
-import { QUESTIONS_BY_ID } from '../engine/questions';
-import { formatDistance } from './units';
-import { describeAnswer } from './AskLog';
 import { sameBoard } from '../community/active';
+import { RoundWrapped } from './RoundWrapped';
 
 function formatDuration(ms: number): string {
   const totalMin = Math.max(0, Math.round(ms / 60_000));
@@ -16,11 +13,19 @@ function formatDuration(ms: number): string {
 
 /**
  * Finished rounds, read-only. Every number here is recomputed from the same
- * ask log the live game uses — `evaluate()`, not a second tally kept
- * alongside it — so a result can never disagree with what the round actually
- * showed while it was in progress.
+ * ask log the live game uses — `evaluate()`, by way of stats/wrapped.ts, not
+ * a second tally kept alongside it — so a result can never disagree with
+ * what the round actually showed while it was in progress.
  */
-export function ResultsPanel(props: { data: GameData }) {
+type Resume = {
+  /** Play a round again; resolves to why not, if it could not be. */
+  onResume: (r: Round) => Promise<string | null>;
+  /** Has a pass, and no round in progress. */
+  canResume: boolean;
+  roundActive: boolean;
+};
+
+export function ResultsPanel(props: { data: GameData } & Resume) {
   const { data } = props;
   const rounds = useGame((s) => s.rounds);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -31,7 +36,12 @@ export function ResultsPanel(props: { data: GameData }) {
   );
 
   const open = openId ? finished.find((r) => r.id === openId) : undefined;
-  if (open) return <RoundResult round={open} data={data} onBack={() => setOpenId(null)} />;
+  if (open) {
+    return (
+      <RoundResult round={open} data={data} onBack={() => setOpenId(null)}
+        onResume={props.onResume} canResume={props.canResume} roundActive={props.roundActive} />
+    );
+  }
 
   return (
     <div className="pad">
@@ -59,25 +69,17 @@ export function ResultsPanel(props: { data: GameData }) {
   );
 }
 
-function RoundResult(props: { round: Round; data: GameData; onBack: () => void }) {
+function RoundResult(props: { round: Round; data: GameData; onBack: () => void } & Resume) {
   const { round, data, onBack } = props;
-  const units = useGame((s) => s.settings.units);
-  const strictness = useGame((s) => s.settings.strictness);
-
-  const evaluated = useMemo(
-    () => evaluate(data.stations, round.asks, QUESTIONS_BY_ID, data.layers, data.boundary, strictness),
-    [data, round.asks, strictness],
-  );
+  const setRoundHiderStation = useGame((s) => s.setRoundHiderStation);
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   // Zone counts are only meaningful against the stations the round was
   // actually played on. On any other board, say so instead of showing a
   // number computed from the wrong set.
   const currentBoard = useGame((s) => s.board);
   const otherBoard = !sameBoard(round.board, currentBoard);
-
-  const station = round.hiderStationId && !otherBoard ? data.stations.find((s) => s.id === round.hiderStationId) : undefined;
-  const left = evaluated.alive.length;
-  const total = evaluated.verdicts.length;
 
   return (
     <div className="pad">
@@ -86,59 +88,40 @@ function RoundResult(props: { round: Round; data: GameData; onBack: () => void }
       <p className="muted">
         {round.role === 'seeker' ? 'Seeking' : 'Hiding'}
         {' · '}{new Date(round.startedAt).toLocaleString()}
-        {' · '}{formatDuration((round.endedAt ?? round.startedAt) - round.startedAt)}
       </p>
 
-      {otherBoard && (
-        <p className="hint warn">
-          This round was played on {round.board ? `the map “${round.board.name}”` : 'the built-in board'}, not the one
-          loaded now. Switch back to it on the Map tab to see its zone counts.
-        </p>
-      )}
-
-      <div className="resultstats">
-        {!otherBoard && (
-          <div className="stat">
-            <strong>{left}</strong>
-            <span className="muted small">of {total} zones still possible</span>
-          </div>
-        )}
-        <div className="stat">
-          <strong>{round.asks.length}</strong>
-          <span className="muted small">question{round.asks.length === 1 ? '' : 's'} asked</span>
-        </div>
-        {station && (
-          <div className="stat">
-            <strong>{station.name}</strong>
-            <span className="muted small">{round.role === 'hider' ? 'claimed station' : "hider's station"}</span>
-          </div>
-        )}
-      </div>
-
-      {round.asks.length === 0 ? (
-        <p className="muted">No questions were logged this round.</p>
-      ) : (
-        <ul className="list log">
-          {round.asks.map((a) => {
-            const q = QUESTIONS_BY_ID[a.questionId];
-            const resolved = evaluated.resolved.find((r) => r.entry.id === a.id);
-            return (
-              <li key={a.id} className={a.disabled ? 'muted' : ''}>
-                <div className="grow">
-                  <div>
-                    <b>{q?.label ?? a.questionId}</b>
-                    <span className="answer"> {describeAnswer(a.answer)}</span>
-                  </div>
-                  <div className="muted small">
-                    {new Date(a.askedAt).toLocaleTimeString()}
-                    {resolved?.radiusM !== undefined && ` · ${formatDistance(resolved.radiusM, units)} from nearest`}
-                  </div>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      {/* The same look back the stats page gives (#/stats), on the board already loaded. */}
+      <RoundWrapped
+        round={round}
+        board={otherBoard ? null : data}
+        boardNote={
+          <>
+            This round was played on {round.board ? `the map “${round.board.name}”` : 'the built-in board'}, not the one
+            loaded now. Switch back to it on the Map tab to see its zone counts.
+          </>
+        }
+        onHiderStation={(id) => setRoundHiderStation(round.id, id)}
+      />
+      <button
+        className="resume big"
+        disabled={!props.canResume || busy}
+        onClick={async () => {
+          setBusy(true);
+          setNote(await props.onResume(round));
+          setBusy(false);
+        }}
+      >
+        {busy ? 'Loading its board…' : 'Resume this round'}
+      </button>
+      <p className="muted small">
+        {props.roundActive
+          ? 'You have a round in progress. End it first, or carry on with it from Play.'
+          : !props.canResume
+            ? 'Carrying on with a round is playing, so it needs a pass on this device — get one from Play → Start a new round.'
+            : 'Carry on where it stopped: the same board, the same questions. Ending it again ends it anew.'}
+      </p>
+      {note && <p className="warntext">{note}</p>}
+      <p className="small"><a href="#/stats">All rounds and game files →</a></p>
     </div>
   );
 }

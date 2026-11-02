@@ -4,12 +4,15 @@ import type { FeatureCollection } from 'geojson';
 import type { GameData } from '../data/load';
 import { LAYER_DEFS, VORONOI_KEYS } from '../data/layers';
 import type { Boundary, PoiLayer, Station } from '../engine/types';
-import { zoneOf } from '../engine/candidates';
+import { ZONE_RADIUS_M, zoneOf } from '../engine/candidates';
 import { projectionAt } from '../engine/project';
 import type { MapFile, MapStation } from './format';
 
 /** The one board this build ships. A station map names the city it was drawn for. */
 export const CITY = 'sf';
+/** How that board is named to a person, and the country its flag comes from. */
+export const CITY_NAME = 'San Francisco';
+export const CITY_COUNTRY = 'us';
 
 export type BoardProblem = { blocking: boolean; text: string };
 
@@ -69,7 +72,11 @@ function closePairs(stations: MapStation[], withinM: number): number {
   return n;
 }
 
-function stationsOf(map: MapFile): { stations: Station[]; zones: FeatureCollection } {
+/** The map's own hiding-zone radius, or the default. */
+export const radiusOf = (map: MapFile): number => map.rules.zoneRadiusM ?? ZONE_RADIUS_M;
+
+function stationsOf(map: MapFile): { stations: Station[]; zones: FeatureCollection; zoneRadiusM: number } {
+  const radiusM = radiusOf(map);
   const stations: Station[] = map.stations.map((s) => ({
     id: s.id,
     name: s.name,
@@ -85,10 +92,11 @@ function stationsOf(map: MapFile): { stations: Station[]; zones: FeatureCollecti
       type: 'Feature',
       id: s.id,
       properties: { id: s.id, name: s.name, modes: s.modes },
-      geometry: zoneOf(s).geometry,
+      // At the map's radius, given outright: the engine may still be on the last board.
+      geometry: zoneOf(s, radiusM).geometry,
     })),
   };
-  return { stations, zones };
+  return { stations, zones, zoneRadiusM: radiusM };
 }
 
 /**

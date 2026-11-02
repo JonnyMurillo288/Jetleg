@@ -38,6 +38,12 @@ type Props = {
   onPreview: (map: MapFile | null) => void;
   /** A round in progress pins the board: changing it mid-round would re-score it. */
   roundActive: boolean;
+  /** The map whose page is open, from the address; null for the list. */
+  openId: string | null;
+  /** Open a map's page, or (null) go back to the list. */
+  onOpen: (id: string | null) => void;
+  /** Lead with the tools for making a map, rather than with what is published. */
+  create: boolean;
 };
 
 const when = (iso: string) => new Date(iso).toLocaleDateString();
@@ -48,7 +54,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
  * map, play on it, branch it into your own, and say what you think of it.
  */
 export function CommunityPanel(props: Props) {
-  const [openId, setOpenId] = useState<string | null>(null);
+  const { openId } = props;
   if (openId) {
     return (
       <MapPage
@@ -59,16 +65,16 @@ export function CommunityPanel(props: Props) {
         roundActive={props.roundActive}
         onPlay={props.onPlay}
         onPreview={props.onPreview}
-        onOpen={setOpenId}
-        onBack={() => { props.onPreview(null); setOpenId(null); }}
+        onOpen={props.onOpen}
+        onBack={() => props.onOpen(null)}
         onEdit={props.onEdit}
       />
     );
   }
-  return <Browse {...props} onOpen={setOpenId} />;
+  return <Browse {...props} />;
 }
 
-function Browse(props: Props & { onOpen: (id: string) => void }) {
+function Browse(props: Props) {
   const { active, roundActive } = props;
   const [sort, setSort] = useState<Sort>('top');
   const [maps, setMaps] = useState<MapSummary[] | null>(null);
@@ -95,10 +101,11 @@ function Browse(props: Props & { onOpen: (id: string) => void }) {
 
   return (
     <div className="pad community">
-      <h2>Community maps</h2>
+      <h2>{props.create ? 'Create a map' : 'Community maps'}</h2>
       <p className="muted">
-        Play on a map someone else made, branch it into your own, or build one from scratch — a new
-        set of stations for San Francisco, or a whole other city.
+        {props.create
+          ? 'Build a board from scratch — a new set of stations for San Francisco, or a whole other city — then play on it, save it as a file, or publish it.'
+          : 'Play on a map someone else made, branch it into your own, or build one from scratch — a new set of stations for San Francisco, or a whole other city.'}
       </p>
 
       <div className="boardnow">
@@ -130,7 +137,9 @@ function Browse(props: Props & { onOpen: (id: string) => void }) {
         stations and places from OpenStreetMap or your own files, and build the Voronoi cells.
       </p>
 
-      {!supabase ? (
+      {props.create ? (
+        <p className="small"><a href="#/maps">Explore the maps other people have published →</a></p>
+      ) : !supabase ? (
         <p className="muted small">
           This build has no server configured, so there is nothing to browse — but you can still
           make a map, save it as a file and play on it.

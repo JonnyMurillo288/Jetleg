@@ -11,6 +11,9 @@ import { QuestionRow } from './QuestionRow';
 import { AskLog } from './AskLog';
 import { PlanPanel } from './PlanPanel';
 import type { PlanCandidate } from '../engine/plan';
+import type { ChatQuestion } from '../chat/chat';
+import type { AskExtra } from './ChatPanel';
+import { Lightbox, PhotoThumb } from './ChatPhotos';
 
 type Evaluated = ReturnType<typeof evaluate>;
 
@@ -24,8 +27,16 @@ export function SeekerPanel(props: {
   setPins: (p: { start?: LngLat; end?: LngLat }) => void;
   /** Shortlisted questions, already evaluated against the surviving zones. */
   planCandidates: PlanCandidate[];
+  /** In a game: ask through its chat, and see the photos the hider sent. */
+  chat?: {
+    questions: ChatQuestion[];
+    /** Photos kept on this phone, by chat question id. */
+    photos: Record<string, string>;
+    onAsk: (q: Question, extra?: AskExtra) => Promise<string | null>;
+  };
 }) {
-  const { data, round, evaluated, origin, pins, setPins, planCandidates } = props;
+  const { data, round, evaluated, origin, pins, setPins, planCandidates, chat } = props;
+  const [photo, setPhoto] = useState<{ id: string; caption: string } | null>(null);
   const [view, setView] = useState<'ask' | 'plan' | 'log'>('ask');
   const [category, setCategory] = useState<Category>('radar');
   // One row open at a time: the list is eighty rows on a phone screen, and
@@ -120,6 +131,10 @@ export function SeekerPanel(props: {
             <ThermometerBar here={origin} pins={pins} setPins={setPins} units={settings.units} />
           )}
 
+          {category === 'photo' && chat && (
+            <PhotoDrawer questions={chat.questions} photos={chat.photos} onOpen={(id, caption) => setPhoto({ id, caption })} />
+          )}
+
           <ul className="qlist">
             {available.map((q) => (
               <QuestionRow
@@ -135,12 +150,50 @@ export function SeekerPanel(props: {
                 inPlan={plan.includes(q.id)}
                 onTogglePlan={() => togglePlan(q.id)}
                 onAnswer={(answer, extra) => record(q, answer, extra)}
+                onAskInChat={chat ? (extra) => chat.onAsk(q, extra) : undefined}
               />
             ))}
           </ul>
         </>
       )}
+      {photo && chat?.photos[photo.id] && (
+        <Lightbox url={chat.photos[photo.id]} caption={photo.caption} onClose={() => setPhoto(null)} />
+      )}
     </div>
+  );
+}
+
+/**
+ * Every photo the hider has sent this game, under the Photo category — a
+ * drop-down, newest first, each one a tap from full size. The same photos
+ * are pinned to their questions in the chat; this is where a seeker comparing
+ * them against the map goes looking.
+ */
+function PhotoDrawer(props: { questions: ChatQuestion[]; photos: Record<string, string>; onOpen: (id: string, caption: string) => void }) {
+  const photos = props.questions.filter((q) => q.photo);
+  const waiting = props.questions.filter((q) => q.answerKind === 'photo' && !q.answer).length;
+  if (!photos.length && !waiting) return null;
+  return (
+    <details className="photodrawer pad-x" open>
+      <summary>
+        <b>Photos from the hider</b> <span className="muted small">{photos.length}{waiting ? ` · ${waiting} on the way` : ''}</span>
+      </summary>
+      <ul className="list">
+        {photos.map((q) => {
+          const label = QUESTIONS_BY_ID[q.questionId]?.label ?? q.questionId;
+          const caption = `${label} · ${new Date(q.answeredAt!).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+          return (
+            <li key={q.id} className="photoitem">
+              <PhotoThumb url={props.photos[q.id]} label={label} onOpen={() => props.onOpen(q.id, caption)} />
+              <span className="grow">
+                <b>{label}</b>
+                <span className="muted small"> {caption.split(' · ')[1]}</span>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </details>
   );
 }
 

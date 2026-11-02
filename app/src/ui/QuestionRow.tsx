@@ -18,9 +18,27 @@ export function QuestionRow(props: {
   inPlan: boolean;
   onTogglePlan: () => void;
   onAnswer: (a: Answer, extra?: Partial<AskEntry>) => void;
+  /** In a game: send this question to the hider through the chat. Resolves to an error, or null. */
+  onAskInChat?: (extra?: Partial<Pick<AskEntry, 'distanceM' | 'origin' | 'destination'>>) => Promise<string | null>;
 }) {
-  const { question: q, status, timesAsked, pins, data, open, onToggle, inPlan, onTogglePlan, onAnswer } = props;
+  const { question: q, status, timesAsked, pins, data, open, onToggle, inPlan, onTogglePlan, onAnswer, onAskInChat } = props;
   const [chooseM, setChooseM] = useState(1000);
+  const [asking, setAsking] = useState<'idle' | 'busy' | 'sent'>('idle');
+  const [askError, setAskError] = useState<string | null>(null);
+  const thermoReady = !!pins.start && !!pins.end;
+
+  const askInChat = async () => {
+    if (!onAskInChat) return;
+    setAsking('busy');
+    setAskError(null);
+    const err = await onAskInChat(
+      q.id === 'radar-choose' ? { distanceM: chooseM }
+      : q.category === 'thermometer' ? { origin: pins.start!, destination: pins.end! }
+      : undefined,
+    );
+    setAsking(err ? 'idle' : 'sent');
+    setAskError(err);
+  };
 
   const dead = status.state === 'null';
   const weak = status.state === 'useless';
@@ -53,6 +71,23 @@ export function QuestionRow(props: {
           {q.spec && <p className="muted small"><b>Photo spec:</b> {q.spec}</p>}
           {'reason' in status && status.reason && <p className="warntext small">{status.reason}</p>}
           <p className="muted small">{q.draw} · answer within {q.timeLimitMin} min</p>
+
+          {onAskInChat && !dead && (
+            /* Asked in the game chat, the answer comes back from the hider and
+               is logged by itself; the buttons below remain for an answer
+               given out loud. */
+            <div className="col">
+              <button
+                className="primary"
+                disabled={asking === 'busy' || (q.category === 'thermometer' && !thermoReady)}
+                onClick={askInChat}
+              >
+                {asking === 'busy' ? 'Asking…' : asking === 'sent' ? '✓ Asked in chat — ask again' : 'Ask in game chat'}
+              </button>
+              {asking === 'sent' && <span className="muted small">The hider’s answer will be logged when it arrives.</span>}
+              {askError && <span className="warntext">{askError}</span>}
+            </div>
+          )}
 
           {!dead && <Answers q={q} pins={pins} data={data} chooseM={chooseM} setChooseM={setChooseM} onAnswer={onAnswer} />}
 

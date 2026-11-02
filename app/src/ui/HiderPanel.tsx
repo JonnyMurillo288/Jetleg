@@ -5,7 +5,7 @@ import { useGame, newAskId, type Round } from '../store/game';
 import { CATEGORY_META, CATEGORY_ORDER, QUESTIONS, QUESTIONS_BY_ID } from '../engine/questions';
 import { nearestFeature, distanceToFeatureM } from '../engine/regions';
 import { metres } from '../engine/project';
-import { ZONE_RADIUS_M, type evaluate } from '../engine/candidates';
+import { type evaluate } from '../engine/candidates';
 import type { Answer, AskEntry, Category, LngLat, Question, Station } from '../engine/types';
 import { formatDistance } from './units';
 
@@ -105,7 +105,7 @@ export function HiderPanel(props: {
         {!hiderStation ? (
           <p className="muted">
             Tap a station on the map to claim it. Your hiding zone is the{' '}
-            {formatDistance(ZONE_RADIUS_M, settings.units)} circle around it.
+            {formatDistance(data.zoneRadiusM, settings.units)} circle around it.
           </p>
         ) : (
           <div className="zonecard">
@@ -116,7 +116,7 @@ export function HiderPanel(props: {
                 {hiderStation.routes.length > 0 && ` · ${hiderStation.routes.slice(0, 8).join(' ')}`}
               </div>
             </div>
-            <div className={drift !== null && drift > ZONE_RADIUS_M ? 'drift bad' : 'drift'}>
+            <div className={drift !== null && drift > data.zoneRadiusM ? 'drift bad' : 'drift'}>
               {drift === null ? '—' : formatDistance(drift, settings.units)}
               <span className="muted small"> from centre</span>
             </div>
@@ -124,10 +124,10 @@ export function HiderPanel(props: {
           </div>
         )}
 
-        {drift !== null && drift > ZONE_RADIUS_M && (
+        {drift !== null && drift > data.zoneRadiusM && (
           <p className="warntext">
             You are outside your hiding zone. Head back inside the{' '}
-            {formatDistance(ZONE_RADIUS_M, settings.units)} circle.
+            {formatDistance(data.zoneRadiusM, settings.units)} circle.
           </p>
         )}
       </div>
@@ -540,7 +540,7 @@ function HiderAnswer(props: {
  * nearest feature and distance, which is exactly what they need to answer once
  * the seeker states theirs.
  */
-function computeAnswer(
+export function computeAnswer(
   q: Question,
   data: GameData,
   here: LngLat,

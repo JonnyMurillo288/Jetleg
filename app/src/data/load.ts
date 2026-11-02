@@ -1,10 +1,13 @@
 import type { FeatureCollection } from 'geojson';
 import type { Boundary, PoiLayer, Station } from '../engine/types';
+import { ZONE_RADIUS_M } from '../engine/candidates';
 
 const BASE = `${import.meta.env.BASE_URL}data`;
 
 export type GameData = {
   boundary: Boundary;
+  /** How far from its station a hiding zone reaches. The built-in board's is ZONE_RADIUS_M; a map may choose its own. */
+  zoneRadiusM: number;
   bbox: [number, number, number, number];
   stations: Station[];
   zones: FeatureCollection;
@@ -77,6 +80,8 @@ export async function loadGameData(): Promise<GameData> {
 
   return {
     boundary: boundaryFc.features[0] as Boundary,
+    // The pipeline drew zones.geojson at this radius (pipeline/08-promote-stations.ts).
+    zoneRadiusM: ZONE_RADIUS_M,
     bbox,
     stations: stationsDoc.stations,
     zones,

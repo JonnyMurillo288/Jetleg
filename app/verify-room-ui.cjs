@@ -65,7 +65,7 @@ async function player(browser, at, target) {
 }
 
 (async () => {
-  const target = process.env.TARGET || 'http://127.0.0.1:4310/';
+  const target = (process.env.TARGET || 'http://127.0.0.1:4310/').replace(/#.*$/, '') + '#/play'; // the game's page; the root is the landing page
   console.log('target:', target, '\n');
   const browser = await chromium.launch();
   const seeker = await player(browser, SEEKER_AT, target);

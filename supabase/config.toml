@@ -186,8 +186,10 @@ enable_signup = true
 # On: the app's identity model is a display name, not a login — anonymous
 # auth gives RLS a real auth.uid() to gate on without a visible sign-in flow.
 enable_anonymous_sign_ins = true
-# Allow/disallow testing manual linking of accounts
-enable_manual_linking = false
+# On: Google sign-in links the Google account to the device's existing
+# anonymous identity (linkIdentity), so its pass and its game carry over --
+# the same thing email sign-in does by attaching the address.
+enable_manual_linking = true
 # Passwords shorter than this value will be rejected as weak. Minimum 6, recommended 8 or more.
 minimum_password_length = 6
 # Passwords that do not meet the following requirements will be rejected as weak. Supported values
@@ -362,6 +364,17 @@ url = ""
 skip_nonce_check = false
 # If enabled, it will allow the user to successfully authenticate when the provider does not return an email address.
 email_optional = false
+
+# Google sign-in (app/src/community/account.ts). Off locally: it needs a real
+# Google OAuth client, whose redirect URI must be this stack's
+# http://127.0.0.1:54321/auth/v1/callback. To try it here, set both env vars
+# and `enabled = true`, then restart the stack. What is kept of a Google
+# account -- an email and a name -- is decided in 0012_google_sign_in.sql.
+[auth.external.google]
+enabled = false
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_CLIENT_ID)"
+secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"
+skip_nonce_check = false
 
 # Allow Solana wallet holders to sign in to your project via the Sign in with Solana (SIWS, EIP-4361) standard.
 # You can configure "web3" rate limit in the [auth.rate_limit] section and set up [auth.captcha] if self-hosting.

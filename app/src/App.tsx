@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { loadGameData, type GameData } from './data/load';
 import { MapView } from './map/MapView';
 import { useLocation } from './location/useLocation';
-import { useGame, useActiveRound, requestPersistence } from './store/game';
+import { useGame, useActiveRound, requestPersistence, newAskId, type Round } from './store/game';
 import { QUESTIONS_BY_ID } from './engine/questions';
 import { evaluate } from './engine/candidates';
 import { layerIndex } from './engine/spatial';
@@ -11,10 +11,15 @@ import { planCandidate, type PlanCandidate } from './engine/plan';
 import { metresCached } from './engine/project';
 import { buildMeasureFc, buildPlanFc } from './map/overlays';
 import { MapToolbar } from './ui/MapToolbar';
-import type { LngLat } from './engine/types';
+import type { Answer, LngLat, Question } from './engine/types';
 import { SeekerPanel } from './ui/SeekerPanel';
 import { HiderPanel } from './ui/HiderPanel';
-import { TopBar } from './ui/TopBar';
+import { TopBar, type Tab } from './ui/TopBar';
+import { ChatPanel, type AskExtra } from './ui/ChatPanel';
+import { useGameChat } from './chat/useGameChat';
+import { chatGamesOf, forgetUnusedChats } from './chat/local';
+import { openQuestions, type ChatQuestion } from './chat/chat';
+import { formatDistance } from './ui/units';
 import { LayerPanel } from './ui/LayerPanel';
 import { RoundGate } from './ui/RoundGate';
 import { Diagnostics } from './ui/Diagnostics';
@@ -27,7 +32,8 @@ import { buildPeersFc, pickFollowed, type SharePosition } from './live/share';
 import { supabase } from './sync/client';
 import { applyMap, checkMap } from './community/board';
 import { enterBoard } from './engine/reset';
-import { loadActiveMap, saveActiveMap, stampOf, type ActiveMap } from './community/active';
+import { loadActiveMap, sameBoard, saveActiveMap, stampOf, type ActiveMap } from './community/active';
+import { getVersion } from './community/api';
 
 export default function App() {
   // The board as shipped. `data`, below, is what is actually played on: this,
@@ -36,7 +42,7 @@ export default function App() {
   const [base, setBase] = useState<GameData | null>(null);
   const [activeMap, setActiveMap] = useState<ActiveMap | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'play' | 'layers' | 'results' | 'game' | 'help'>('play');
+  const [tab, setTab] = useState<Tab>('play');
   const [pins, setPins] = useState<{ start?: LngLat; end?: LngLat }>({});
 
   const role = useGame((s) => s.role);
@@ -68,12 +74,47 @@ export default function App() {
     // Here, and not in an effect: everything below this line in the same
     // render evaluates against `board`, and must do so in its projection
     // and with none of the last board's cached regions.
-    enterBoard(board.bbox);
+    enterBoard(board.bbox, board.zoneRadiusM);
     return board;
   }, [base, activeMap]);
 
   // Rounds are stamped with the board they start on (store/game.ts).
   useEffect(() => { setBoard(stampOf(activeMap)); }, [activeMap, setBoard]);
+
+  const resumeInStore = useGame((s) => s.resumeRound);
+  const updateSettings = useGame((s) => s.updateSettings);
+  /**
+   * Play a round again — one left unfinished, or one that was ended.
+   *
+   * A round's log names stations by id, so it must be resumed on the board
+   * it was played on: that board is put back first, or, where it cannot be,
+   * the round is not resumed at all and the reason is returned. Resumed on
+   * any other board, every answer would be scored against the wrong stations.
+   */
+  const resumeRound = async (r: Round): Promise<string | null> => {
+    if (!base) return 'The board is still loading.';
+    const want = r.board;
+    if (!sameBoard(want, stampOf(activeMap))) {
+      if (!want) {
+        await saveActiveMap(null);
+        setActiveMap(null);
+      } else if (!want.versionId) {
+        return `This round was played on “${want.name}”, a map opened from a file. Open that file in the map studio, play on it, then resume the round.`;
+      } else {
+        const got = await getVersion(want.versionId);
+        if (!got.ok) return `This round was played on “${want.name}”, which could not be loaded: ${got.error}`;
+        const next: ActiveMap = { mapId: got.value.mapId, versionId: want.versionId, map: got.value.map };
+        const blocker = checkMap(next.map, base.boundary).find((p) => p.blocking);
+        if (blocker) return blocker.text;
+        await saveActiveMap(next);
+        updateSettings(next.map.rules);
+        setActiveMap(next);
+      }
+    }
+    resumeInStore(r.id);
+    setTab('play');
+    return null;
+  };
 
   /** Back to the board the app ships with. Maps are chosen in the studio. */
   const useBuiltInBoard = async () => {
@@ -108,8 +149,9 @@ export default function App() {
   // The game room this device is in, if any. Membership only — which game,
   // which team — restored from IndexedDB so a reload stays in the game.
   const [game, setGame] = useState<LocalGame | null>(null);
+  const [gameLoaded, setGameLoaded] = useState(false);
   useEffect(() => {
-    loadGame().then(setGame);
+    loadGame().then((g) => { setGame(g); setGameLoaded(true); });
   }, []);
 
   /**
@@ -142,6 +184,99 @@ export default function App() {
   const seekerPoint: LngLat | undefined = followed?.coords ?? round?.seekerPin;
   const peersFc = useMemo(() => buildPeersFc(live.peers, followed?.id), [live.peers, followed?.id]);
 
+  // ---- the game chat (src/chat): questions with a clock, and free chat.
+  const chat = useGameChat(game, role, tab === 'chat');
+  const addAsk = useGame((s) => s.addAsk);
+  const addChatAsk = useGame((s) => s.addChatAsk);
+  const applyChatAnswer = useGame((s) => s.applyChatAnswer);
+  const playing = !!round && !round.endedAt && round.role === role;
+
+  /**
+   * A seeker asks in the chat. Only the question goes to the server; where
+   * they stood stays in the round on this phone, waiting for the answer.
+   */
+  const askInChat = async (q: Question, extra?: AskExtra): Promise<string | null> => {
+    if (!game) return 'Join a game first.';
+    if (role !== 'seeker' || !playing) return 'Start a seeking round first.';
+    const from = extra?.origin ?? origin;
+    if (!from) return 'No position yet. Turn on location, or switch to Manual and tap-and-hold the map.';
+    const text = q.id === 'radar-choose' && extra?.distanceM
+      ? `Are you within ${formatDistance(extra.distanceM, settings.units)} of me?`
+      : q.text;
+    const res = await chat.ask(q, text, extra?.distanceM);
+    if (!res.ok) return res.error;
+    addChatAsk(res.value.id, {
+      questionId: q.id,
+      askedAt: Date.now(),
+      origin: from,
+      destination: extra?.destination,
+      distanceM: extra?.distanceM,
+    });
+    if (q.category === 'thermometer') setPins({});
+    return null;
+  };
+
+  // The hider answered: log it into the round it was asked in. The store
+  // makes this idempotent, so the live delivery and the history reload can
+  // both hand over the same answer.
+  const chatAsks = round?.chatAsks;
+  useEffect(() => {
+    if (role !== 'seeker' || !chatAsks) return;
+    for (const q of chat.questions) if (q.answer && chatAsks[q.id]) applyChatAnswer(q.id, q.answer);
+  }, [chat.questions, chatAsks, role, applyChatAnswer]);
+
+  /**
+   * The hider answered in the chat: record it in their exposure log too,
+   * measured from the seeker who asked — their live dot, else the pin.
+   */
+  const logHiderAnswer = (cq: ChatQuestion, answer: Answer): string | null => {
+    const q = QUESTIONS_BY_ID[cq.questionId];
+    if (!q || !round || round.endedAt || role !== 'hider') return null;
+    if (round.asks.some((a) => a.chatId === cq.id)) return null;
+    const asker = live.peers.find((p) => p.id === cq.askedBy)?.coords ?? seekerPoint;
+    const thermo = q.category === 'thermometer' && hiderThermo.start && hiderThermo.end;
+    // A photo or a null has no geometry; any point will do, and it never leaves this phone.
+    const from = thermo ? hiderThermo.start : asker ?? (answer.kind === 'photo' || answer.kind === 'null' ? origin ?? undefined : undefined);
+    if (!from) {
+      return q.category === 'thermometer'
+        ? 'Sent. Not in your exposure log: place the seekers’ start and end on the Play tab’s Thermometer to track it.'
+        : 'Sent. Not in your exposure log: there was no seeker position to measure it from.';
+    }
+    addAsk({
+      id: newAskId(),
+      questionId: q.id,
+      askedAt: cq.askedAt,
+      origin: from,
+      destination: thermo ? hiderThermo.end : undefined,
+      distanceM: cq.distanceM ?? undefined,
+      answer,
+      chatId: cq.id,
+    });
+    return null;
+  };
+  const owed = role === 'hider' ? openQuestions(chat.questions).length : 0;
+
+  /**
+   * The chat is game data, kept on this phone only (chat/local.ts). A round
+   * played while in a game names that game, so its chat goes with the round
+   * into the game file — and is deleted, photos and all, once no round on
+   * this phone names the game and the phone has left it.
+   */
+  const addChatGame = useGame((s) => s.addChatGame);
+  const rounds = useGame((s) => s.rounds);
+  useEffect(() => {
+    if (game && playing && !round?.chatGames?.includes(game.gameId)) addChatGame(game.gameId);
+  }, [game?.gameId, playing, round?.chatGames, addChatGame]);
+  // Rounds load from storage after the first render. Until they have, and
+  // until the game this phone is in has, "no round names it" is not yet true.
+  const [roundsLoaded, setRoundsLoaded] = useState(() => useGame.persist.hasHydrated());
+  useEffect(() => useGame.persist.onFinishHydration(() => setRoundsLoaded(true)), []);
+  const keptChats = [...chatGamesOf(rounds), ...(game ? [game.gameId] : [])].sort().join(',');
+  useEffect(() => {
+    if (!roundsLoaded || !gameLoaded) return;
+    forgetUnusedChats(new Set(keptChats ? keptChats.split(',') : [])).catch(() => {});
+  }, [roundsLoaded, gameLoaded, keptChats]);
+
   // null = not checked yet, so the paywall never flashes before the (fast,
   // local) cache read resolves.
   const [entitled, setEntitled] = useState<boolean | null>(null);
@@ -156,7 +291,8 @@ export default function App() {
     if (params.has('checkout')) {
       params.delete('checkout');
       const rest = params.toString();
-      window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : ''));
+      // The hash is the page (route.ts): dropping it here would send a reload to the landing page.
+      window.history.replaceState({}, '', window.location.pathname + (rest ? `?${rest}` : '') + window.location.hash);
     }
 
     let cancelled = false;
@@ -321,6 +457,7 @@ export default function App() {
         tab={tab}
         onTab={setTab}
         gameCode={game?.joinCode ?? null}
+        chatBadge={{ unread: chat.unread, owed }}
       />
 
       <MapView
@@ -339,7 +476,10 @@ export default function App() {
             ? { seekers: followed ? undefined : round?.seekerPin, start: hiderThermo.start, end: hiderThermo.end }
             : pins
         }
-        hiderStation={hiderStation}
+        // Only a hider's own claim is drawn. A seeker can record where the hider
+        // was once a round is over, and resuming that round must not then
+        // show the answer on their map.
+        hiderStation={role === 'hider' ? hiderStation : null}
         measureFc={measureFc}
         planFc={planFc}
         peersFc={peersFc}
@@ -406,7 +546,22 @@ export default function App() {
             onBuiltIn={activeMap && !roundActive ? useBuiltInBoard : null}
           />
         ) : tab === 'results' ? (
-          <ResultsPanel data={data} />
+          <ResultsPanel data={data} onResume={resumeRound} canResume={entitled === true && !roundActive} roundActive={roundActive} />
+        ) : tab === 'chat' ? (
+          <ChatPanel
+            game={game}
+            chat={chat}
+            role={role}
+            playing={playing}
+            data={data}
+            origin={origin}
+            seekerPoint={seekerPoint ?? null}
+            seekerDots={live.peers}
+            pins={pins}
+            onAsk={askInChat}
+            onAnswered={logHiderAnswer}
+            onOpenGame={() => setTab('game')}
+          />
         ) : tab === 'game' ? (
           <GamePanel
             game={game}
@@ -416,7 +571,7 @@ export default function App() {
             hasPosition={!!origin}
           />
         ) : !round || round.endedAt ? (
-          <RoundGate canStart={entitled === true} onRestored={refreshEntitlement} />
+          <RoundGate canStart={entitled === true} onRestored={refreshEntitlement} onResume={resumeRound} />
         ) : role === 'seeker' ? (
           <SeekerPanel
             data={data}
@@ -426,6 +581,7 @@ export default function App() {
             pins={pins}
             setPins={setPins}
             planCandidates={planCandidates}
+            chat={game ? { questions: chat.questions, photos: chat.photos, onAsk: askInChat } : undefined}
           />
         ) : (
           <HiderPanel

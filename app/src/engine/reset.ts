@@ -1,4 +1,4 @@
-import { resetCandidateCaches } from './candidates';
+import { ZONE_RADIUS_M, resetCandidateCaches, setZoneRadius } from './candidates';
 import { setProjectionCenter } from './project';
 import { resetLayerIndexes } from './spatial';
 
@@ -14,9 +14,12 @@ import { resetLayerIndexes } from './spatial';
  *
  * Call this *before* anything is evaluated against the new board — a stale
  * region would not throw, it would quietly eliminate the wrong zones.
+ *
+ * The hiding-zone radius is the board's too: a map can choose its own.
  */
-export function enterBoard(bbox: [number, number, number, number]): void {
+export function enterBoard(bbox: [number, number, number, number], zoneRadiusM: number = ZONE_RADIUS_M): void {
   setProjectionCenter((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2);
+  setZoneRadius(zoneRadiusM);
   resetLayerIndexes();
   resetCandidateCaches();
 }

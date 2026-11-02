@@ -20,6 +20,9 @@ function code), see `.claude/skills/jetleg/references/payments.md`.
 **Requires an active pass:**
 
 - Starting a new round at all (`RoundGate`'s "Start a new round")
+- Reopening a round that was ended (Play → *Previous rounds*, or Results →
+  *Resume this round*): carrying on with a finished round is playing again.
+  Resuming one that was never ended needs nothing, as before
 - Once a round is active: asking/answering questions, the elimination
   shading, and the Measure/Plan toolbar
 

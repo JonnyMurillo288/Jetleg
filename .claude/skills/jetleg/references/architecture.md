@@ -219,6 +219,13 @@ The local-first design above is unchanged — IndexedDB stays the only source
 of truth while a round is in progress; Supabase only ever receives a
 completed round, once, after it ends.
 
+**And only if the player has asked for that.** `settings.shareHistory` is off
+by default and `endRound` checks it before calling the sync at all. Joining a
+game room gives a device the profile and team the sync needs, which used to
+be enough to start uploading every round that ended; the switch (on the stats
+page, `#/stats`) is now the only thing that does. An imported game file
+cannot turn it on — `importJSON` drops that one setting.
+
 ### What syncs, and what never does
 
 `app/src/sync/payload.ts` builds the synced shape from a `Round` and is the
@@ -377,6 +384,30 @@ position at the moment they call it.
 own small effect in `MapView`, not through `redraw` — a peer moves every few
 seconds, and `redraw` rebuilds every zone polygon.
 
+## In-game chat (`app/src/chat/`, `0013_game_chat.sql`)
+
+Two threads per game room. **Questions**: a seeker asks a catalog question,
+every phone counts down from its time limit, and a hider answers by hand
+(hit/miss, closer/further, hotter/colder, a tentacle place, null, or a
+photo). Nothing is ever answered for them. **Chat**: free text.
+
+**None of it is stored on a server.** Items are Realtime broadcasts on the
+private channel `chat:<game id>` (0013 only says who may use it), relayed
+and kept by no one. Each phone keeps its own copy in IndexedDB beside its
+rounds (`chat/local.ts`); rounds name the games they had chat in
+(`Round.chatGames`), the game file carries those chats with their photos,
+and a game's chat is deleted once no round names it and the phone has left
+the game. A phone that slept catches up from the other phones (`hello` /
+`sync`), not from a server.
+
+No position goes in a chat item. The seeker's origin waits in
+`Round.chatAsks` on their phone; when the answer arrives it becomes an
+`AskEntry` with `chatId` (idempotent), and the zone count moves. The hider's
+copy is measured from the asker's live dot. Photos are re-encoded and
+stripped of metadata before they leave the phone, because a camera's EXIF
+is the hider's GPS position. Full detail, invariants and traps: the
+`jetleg-chat` skill.
+
 ## Community maps and the map studio (`app/src/community/`, `app/src/studio/`)
 
 People publish their own boards, play each other's, and discuss them. All of
@@ -443,15 +474,18 @@ boundary. `pack.ts` decides, `osm.ts` fetches, `studio/Editor.tsx` draws.
 |---|---|---|
 | 01 boundary | find a place (Nominatim), draw, or import; keep the largest landmass; simplify | `largestLandmass`, `simplifyBoundary` |
 | 02 stations | fetch transit stops (same Overpass query), fold same-named stops within 150 m; tap to add/remove; import | `parseStations` — the short form, no routes |
-| 04 pois | the same twelve selectors and exclusions, as **one** combined request | `POI_DEFS`, `fetchAllPois` |
+| 04 pois | the same twelve selectors and exclusions, in the board's **one** combined request | `POI_DEFS`, `fetchAllPois` |
 | 05 linear | transit lines; coastline from OSM or from the boundary's own edge | `parseTransitLines`, `coastlineFromBoundary` |
 | 06 voronoi | cells built in the board's UTM zone, cut to the boundary; or hand-made cells imported | `engine/voronoi.ts`, `finalizePack` |
 | overrides.json | tap a place and remove it | Places tab |
 | closing audit | "none — null", "only one — always yes", per layer | `auditPack` |
 
 Two things learned the usual way. Twelve Overpass requests in a row from a
-browser get rate-limited by the fifth; one union query, sorted by tag
-afterwards, does not. And cutting every cell against a detailed boundary took
+browser get rate-limited by the fifth, and even four cost four turns in a
+public queue that is the whole of the wait: stations, places, coastline and
+lines are now one request (`boardQuery`, split by `make section` markers),
+started when the boundary is set and shared by every tool. The fetch, its
+mirror failover and its measured timings are in the `jetleg-osm` skill. And cutting every cell against a detailed boundary took
 22 s for San Francisco: `voronoiCells` now tests, exactly and in the plane,
 whether the boundary's outline touches a cell at all, and skips the polygon
 intersection for the majority that it does not. The cells are checked against
@@ -499,6 +533,169 @@ taken from the request. Reactions are readable only by their owner; totals
 live on the map row and are recounted under a per-map **advisory** lock — a
 plain recount loses concurrent likes, and a row lock deadlocks against the
 foreign key's own key-share lock.
+
+## The site around the game (`app/src/route.ts`, `app/src/pages/`)
+
+The game used to *be* the site. It is now one page of several, chosen by
+hash in `route.ts` and switched in `main.tsx`:
+
+| Hash | Page | |
+|---|---|---|
+| `#/` | `pages/Landing.tsx` | a still picture of the built-in board, and the way in |
+| `#/start` | `pages/StartGame.tsx` | pick a city, pick one of its maps, play |
+| `#/play` | `App.tsx` | the game, unchanged |
+| `#/maps`, `#/maps/new`, `#/maps/map/<id>` | `studio/StudioApp.tsx` | browse, create, one map's page |
+| `#/stats` | `pages/StatsPage.tsx` | any round or game file, question by question |
+| `#/about`, `#/privacy` | `pages/InfoPages.tsx` | |
+
+Only one page is mounted at a time, and the three that evaluate anything
+(game, studio, stats) each `enterBoard` their own board when they do.
+
+- **The landing map is a JPEG**, `public/landing-sf.jpg`, taken by
+  `npm run shot:landing` from the studio's own map. It does not follow the
+  board: retake it after `npm run promote`. The script refuses to save a
+  picture in which the zones or the basemap did not draw.
+- **Stripe returns to the root** with `?checkout=…`. `main.tsx` moves that
+  to `#/play` before the first render, and `App.tsx` keeps the hash when it
+  strips the parameter; lose either and a buyer lands on the landing page.
+- **Which map's page is open is in the address**, not in the studio's
+  state. Closing an editor therefore returns to wherever the address
+  points, so publishing has to say `go('/maps')` itself.
+- **Choosing a board is one function**, `community/choose.ts` `playOn`, used
+  by the studio and by Start a game: refuse mid-round, run `checkMap`, store
+  the map, apply its house rules, go to `#/play`.
+
+### The city directory (`community/cities.ts`, `0011_city_directory.sql`)
+
+Start a game searches the cities that have maps. A city is the short label
+its maps are filed under, not a gazetteer entry; the shipped board's city is
+always present and counts as one map, server or no server.
+
+- `community_maps.country` — ISO alpha-2, lowercase, copied from the map
+  file at publish time like `city`. The studio fills it from the Nominatim
+  result when a boundary is taken from one, and it can be typed by hand.
+  Optional: no country means a globe, not a refusal.
+- `community_cities` — a `security_invoker` view, one row per city: the
+  country most of its maps name, and its number of **main** maps. A branch
+  is `parent_map_name is not null`, not `parent_map_id` — the id goes null
+  when the original is deleted, the name is kept for exactly that.
+- The count is capped at 11 in the view and shown as "10+". It caps the
+  number shown, not how many maps a city may have.
+
+### Round stats (`stats/wrapped.ts`, `ui/RoundWrapped.tsx`)
+
+`roundStats(round, board, strictness)` is a pure function of a round's log
+and the board it was played on. It calls `evaluate()` once and derives every
+zone count from the verdicts' `killedBy` lists — a zone falls to the first
+answer that contradicts it — so a number on the stats page cannot disagree
+with what the round showed while it was played. The test replays the log one
+question longer at a time and checks the two agree.
+
+- **"Best" is the largest share of what was left**, not the most zones: a
+  late question that cuts 4 zones to 1 did more than an early one that cut
+  190 to 150. The biggest raw cut is reported separately when it differs.
+- **Not everything is scored.** A photo, a disabled entry and a question
+  about a layer the board does not carry are outside what the map can
+  judge, and are left out of best/worst rather than counted as worthless. A
+  null answer *is* scored: it is an answered question that ruled out nothing.
+- **Distances are great-circle**, not the engine's `metres()`, which
+  projects through whichever board is loaded. They are display only.
+- **The board is optional.** A round stamped with a map this device does
+  not have gets timings and movement, and nothing about zones.
+- **Where the hider was** can be told to a finished seeking round
+  afterwards (`setRoundHiderStation`); that is what unlocks distance to the
+  hider, and "the answer that ruled out the real zone".
+
+`stats/gamefile.ts` is the one reader of the export format, used by the
+stats page and by `importJSON`. It validates every round and question and
+counts what it leaves out, because a file is something a person can edit.
+Opening a file on the stats page uploads nothing and imports nothing;
+`verify:flow` asserts the browser makes no non-GET request while doing it.
+
+## The editor's tools (`studio/Editor.tsx`, `community/simplify.ts`)
+
+- **Zone size per map.** `rules.zoneRadiusM`, 100–2000 m, left out of the
+  file when it is the default 500. It is the board's, like the projection:
+  `applyMap` returns it on `GameData`, `enterBoard` hands it to the engine,
+  and `zoneOf` takes it explicitly when building a board's zones, because
+  `applyMap` runs before `enterBoard`. Verdicts are cached per radius.
+- **Selecting.** `picking` turns map taps into toggles on `picked`, which is
+  station ids on the Stations tab or the open category's place ids on
+  Places. `pickedFc` rings them on the map (`picked-ring`, its own layer and
+  its own entry in the redraw dependencies). Bulk actions go through `patch`
+  like every edit, so all of them can be undone (`undo`, the last 40 drafts).
+- **Layers on the studio map** (`studio/StudioLayers.tsx`): station points,
+  hiding zones, each places category and its Voronoi cells. It keeps its own
+  state, so looking at a map in the studio changes nothing in the game. The
+  category being edited stays drawn whatever the switch says, because its
+  points are what the taps land on. The game's on-map panel (`ui/MapLayers.tsx`)
+  has a Places section bound to the same `visibleLayers` as the Map tab.
+  Both panels cap their height at the screen and scroll as one list.
+- **Selection shapes.** Tap, rectangle, lasso or polygon, each adding to or
+  removing from the selection; on Stations a shape can match points or any
+  part of a hiding zone (`studio/select.ts`). Rectangle and lasso are drags:
+  while one is on, MapView disables `dragPan`, sets `touch-action: none`
+  and reads pointer events, so a mouse and a finger work the same way; a
+  second finger cancels the shape so a pinch still zooms. A drag under 8 px
+  is still a tap. Polygon is tapped out through `editorTap` and drawn with the
+  boundary tool's draft style.
+- **Simplify** is maximum independent set on the "closer than the spacing"
+  graph: greedy by fewest undecided conflicts, then (1,2)-swaps until none
+  gains, then same-count swaps toward rail and metro. Against an exact solver
+  on 300 random layouts it is optimal 295 times and one short 5 (the test
+  prints this). Its answer becomes the selection: nothing is deleted until
+  the author deletes it. On the shipped board at 500 m it keeps 70 of 192 with
+  no overlap, or 157 allowing half-overlap.
+
+## Resuming rounds (`App.tsx` `resumeRound`, `store/game.ts` `resumeRound`)
+
+Any round can be played again, finished or not. A finished one is reopened:
+`endedAt` is cleared, and ending it again ends it anew.
+
+- **The round's board comes first.** A log names stations by id, so a round
+  resumed on another board would be scored against the wrong stations.
+  `resumeRound` in App compares the round's stamp with the board in play and
+  puts the round's back: the built-in board, or a published version fetched
+  by id (`getVersion`). A map opened from a file cannot be fetched, so that
+  round is refused, with the reason. The store's own `resumeRound` changes
+  nothing but the round and the role.
+- **Ended rounds need a pass to reopen**, as starting one does. Unfinished
+  rounds resume free, as they always did.
+- **A seeker's map never draws `hiderStationId`.** A seeker can record where
+  the hider was once a round is over (stats), and that round can now be
+  resumed.
+- **History sync replaces, never duplicates** (`sync/write.ts`). The session id
+  is the round's id, and every write upserts the session and round and deletes
+  questions the log no longer has. Before this, a round synced twice failed on
+  its own id, and because `flushQueue` stops at its first failure, every round
+  queued after it stopped syncing too.
+
+## Google sign-in (`community/account.ts`, `0012_google_sign_in.sql`)
+
+The one sign-in that leaves the page, and the reason the Supabase client is
+built with `flowType: 'pkce'`. The default implicit flow returns tokens in the
+URL fragment and then clears it, and the fragment is this app's page
+(`route.ts`). PKCE returns `?code=` and removes only that.
+
+- **Where to come back to** is kept in `sessionStorage` before leaving
+  (`auth/google-pending`), because the redirect goes to the bare origin: a
+  fragment in `redirectTo` would collide with the `?code=` Supabase appends.
+  `restorePageAfterGoogle()` puts the page back synchronously in `main.tsx`,
+  before the router reads it. `finishGoogleSignIn()` settles the rest.
+- **Same two cases as email.** An anonymous device *links* Google
+  (`linkIdentity`, needs manual linking on the project), so its pass and game
+  carry over. If that Google account is already someone's, the callback says
+  `identity_already_exists` and the app signs into it instead, forgetting the
+  device's old identity. Failures come back in the query *or* the fragment and
+  are handled from both.
+- **Only an email and a name are kept.** Triggers on `auth.identities` and
+  `auth.users` cut Google's claims to an allow-list on every write. That is an
+  allow-list, so a claim Google adds later is dropped by default. Supabase
+  cloud accepts these triggers (pushed 31 Oct 2026).
+- **The button asks first.** `googleEnabled()` reads `/auth/v1/settings`, so
+  it never shows where Google is off. `verify:google` stands in for Google
+  and Supabase's settings. It proves the round trip, not a real Google
+  sign-in.
 
 ## Developer access (`0007_developers.sql`, `app/grant-developer.ts`)
 

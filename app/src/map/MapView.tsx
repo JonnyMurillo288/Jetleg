@@ -62,6 +62,15 @@ type Props = {
   onPoiClick?: (layerKey: string, id: string, ll: LngLat) => void;
   /** Move the view to these bounds. A new object each time it should move. */
   lookAt?: { bbox: [number, number, number, number] } | null;
+  /** Map studio: the stations or places selected for a bulk edit, ringed. */
+  pickedFc?: FeatureCollection;
+  /**
+   * Map studio: a drag draws a selection shape instead of panning — a
+   * rectangle or a freehand lasso — and `onShape` gets its corners when the
+   * finger or mouse lifts. Two fingers still pinch to zoom.
+   */
+  shapeTool?: 'rect' | 'lasso' | null;
+  onShape?: (ring: LngLat[]) => void;
 };
 
 /**
@@ -244,6 +253,8 @@ export function MapView(props: Props) {
     // does. Leaving either out means a measurement or a plan that never appears.
     props.measureFc,
     props.planFc,
+    // The studio's selection: without this, selecting a station would not ring it until something else changed.
+    props.pickedFc,
   ]);
 
   /**
@@ -264,6 +275,85 @@ export function MapView(props: Props) {
   useEffect(() => {
     if (map.current && props.lookAt) map.current.fitBounds(props.lookAt.bbox, { padding: 32, duration: 600 });
   }, [props.lookAt]);
+
+  /**
+   * Drawing a selection shape. Pointer events, so one handler serves a mouse,
+   * a pen and a finger alike. While a shape tool is on, a one-finger or mouse
+   * drag draws instead of panning; a second finger cancels the shape, so a
+   * pinch to zoom never leaves half a lasso behind.
+   */
+  const tool = props.shapeTool ?? null;
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !tool) return;
+    const box = m.getCanvasContainer();
+    const touchAction = box.style.touchAction;
+    m.dragPan.disable();
+    m.boxZoom.disable();
+    // Without this a phone scrolls the page instead of sending the drag.
+    box.style.touchAction = 'none';
+
+    const preview = (ring: LngLat[]) =>
+      (m.getSource('shape') as GeoJSONSource | undefined)?.setData(
+        ring.length < 2
+          ? EMPTY
+          : { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: ring.length > 2 ? { type: 'Polygon', coordinates: [[...ring, ring[0]]] } : { type: 'LineString', coordinates: ring } }] },
+      );
+    let pid: number | null = null;
+    let pts: [number, number][] = [];
+    const at = (e: PointerEvent): [number, number] => {
+      const r = box.getBoundingClientRect();
+      return [e.clientX - r.left, e.clientY - r.top];
+    };
+    const corners = (): [number, number][] => {
+      if (tool === 'lasso') return pts;
+      const [[x0, y0], [x1, y1]] = [pts[0], pts[pts.length - 1]];
+      return [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+    };
+    const ringNow = (): LngLat[] => corners().map((p) => { const ll = m.unproject(p); return [ll.lng, ll.lat]; });
+    const cancel = () => { pid = null; pts = []; preview([]); };
+
+    const down = (e: PointerEvent) => {
+      if (!e.isPrimary) { cancel(); return; }
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      pid = e.pointerId;
+      pts = [at(e)];
+      box.setPointerCapture?.(e.pointerId);
+    };
+    const move = (e: PointerEvent) => {
+      if (pid !== e.pointerId) return;
+      const p = at(e);
+      const last = pts[pts.length - 1];
+      if (tool === 'rect') pts = [pts[0], p];
+      else if (Math.hypot(p[0] - last[0], p[1] - last[1]) > 4) pts.push(p);
+      preview(ringNow());
+    };
+    const up = (e: PointerEvent) => {
+      if (pid !== e.pointerId) return;
+      const shape = corners();
+      const xs = shape.map((p) => p[0]);
+      const ys = shape.map((p) => p[1]);
+      // A tap is a tap, not a shape: it still selects or deselects what it lands on.
+      const drawn = shape.length >= 3 && Math.max(...xs) - Math.min(...xs) > 8 && Math.max(...ys) - Math.min(...ys) > 8;
+      const ring = drawn ? ringNow() : null;
+      cancel();
+      if (ring) latest.current.onShape?.(ring);
+    };
+    box.addEventListener('pointerdown', down);
+    box.addEventListener('pointermove', move);
+    box.addEventListener('pointerup', up);
+    box.addEventListener('pointercancel', cancel);
+    return () => {
+      box.removeEventListener('pointerdown', down);
+      box.removeEventListener('pointermove', move);
+      box.removeEventListener('pointerup', up);
+      box.removeEventListener('pointercancel', cancel);
+      cancel();
+      box.style.touchAction = touchAction;
+      m.dragPan.enable();
+      m.boxZoom.enable();
+    };
+  }, [tool]);
 
   /**
    * Live peers get their own, tiny repaint. They move every few seconds per
@@ -318,6 +408,8 @@ function installLayers(m: MLMap, data: GameData) {
   src(m, 'hider', EMPTY);
   src(m, 'plan', EMPTY);
   src(m, 'measure', EMPTY);
+  src(m, 'picked', EMPTY);
+  src(m, 'shape', EMPTY);
 
   // Everything outside the board is not in play — dim it hard.
   m.addLayer({
@@ -712,6 +804,23 @@ function installLayers(m: MLMap, data: GameData) {
     },
     paint: { 'text-color': '#115e59', 'text-halo-color': '#fff', 'text-halo-width': 2 },
   });
+
+  // The studio's selection, on top of everything: a thick ring, so many
+  // selected stations read at a glance and the point under each stays visible.
+  m.addLayer({
+    id: 'picked-ring',
+    type: 'circle',
+    source: 'picked',
+    paint: {
+      'circle-radius': 9,
+      'circle-color': 'rgba(37,99,235,0.18)',
+      'circle-stroke-color': '#2563eb',
+      'circle-stroke-width': 3,
+    },
+  });
+  // A selection shape while it is being drawn.
+  m.addLayer({ id: 'shape-fill', type: 'fill', source: 'shape', paint: { 'fill-color': '#2563eb', 'fill-opacity': 0.12 } });
+  m.addLayer({ id: 'shape-line', type: 'line', source: 'shape', paint: { 'line-color': '#2563eb', 'line-width': 2, 'line-dasharray': [2, 1.5] } });
 }
 
 const OVERLAY_COLORS = ['#dc2626', '#7c3aed', '#0891b2', '#ea580c', '#65a30d', '#db2777'];
@@ -852,11 +961,12 @@ function redraw(m: MLMap, p: Props) {
 
   (m.getSource('plan') as GeoJSONSource)?.setData(p.planFc);
   (m.getSource('measure') as GeoJSONSource)?.setData(p.measureFc);
+  (m.getSource('picked') as GeoJSONSource)?.setData(p.pickedFc ?? EMPTY);
 
   const hider: FeatureCollection = { type: 'FeatureCollection', features: [] };
   if (p.hiderStation) {
     hider.features.push(
-      circleOf([p.hiderStation.lon, p.hiderStation.lat], 500, { steps: 64, units: 'meters' }) as any,
+      circleOf([p.hiderStation.lon, p.hiderStation.lat], p.data.zoneRadiusM, { steps: 64, units: 'meters' }) as any,
     );
   }
   (m.getSource('hider') as GeoJSONSource)?.setData(hider);

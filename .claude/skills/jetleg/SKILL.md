@@ -12,6 +12,7 @@ No server, no accounts — each player's state is local to their phone.
 - **Deep architecture, engine internals, file-by-file:** `references/architecture.md`
 - **Payments — schema, edge functions, admin grants, gating:** `references/payments.md`; product-facing doc at `PAYMENTS.md`, testing at `PAYMENTS_TESTING.md`, both at the repo root
 - **Planned work — backend, accounts, payments, native app:** `ROADMAP.md` at the repo root
+- **The map studio's OpenStreetMap fetch — query, mirrors, cache, parsers, timings:** the `jetleg-osm` skill (`.claude/skills/jetleg-osm/SKILL.md`)
 
 ## The one rule
 
@@ -55,9 +56,17 @@ npm run verify:results # verify-results.cjs — plays a real round, ends it, che
 npm run verify:payments # verify-payments.ts — entitlement RPC + RLS against a live Supabase (needs `supabase start` + `supabase functions serve`)
 npm run verify:room    # verify-room.ts — game rooms + live sharing: who gets on the channel, and that a hider's broadcast is refused (needs `supabase start`)
 npm run verify:room:ui # verify-room-ui.cjs — a hider and two seekers through the Game tab; asks the hider's map what it drew, watches what the hider's browser sends, and checks the hider's answers follow the chosen live seeker (that part needs TEST_LOGIN_CODE set, to start a round)
+npm run verify:chat         # verify-chat.ts — game chat's relay: no table or bucket exists, members only, a paced photo arrives whole, nothing kept (needs `supabase start`)
+npm run verify:chat:ui      # verify-chat-ui.cjs — ask, clock, answer by hand, zone count moves, catch-up after the app was closed, a GPS-tagged photo leaves with no EXIF, game file carries the chat, deleting rounds deletes it (needs TEST_LOGIN_CODE). See the `jetleg-chat` skill
 npm run verify:community    # verify-community.ts — community maps: who may publish/like/comment, versions, branches, concurrent counts, the real emailed-code sign-in
 npm run verify:community:ui # verify-community-ui.cjs — two browsers in the map studio (#/maps): a station map, then a whole city (boundary, OSM stations + places, Voronoi built and hand-made), play it in the game, like, comment, branch. OSM is mocked.
 npm run verify:developer    # verify-developer.ts — developer list, the fixed testing code (listed addresses only, lockout), then paywall -> sign in -> round starts, in a browser
+npm run verify:layers       # verify-map-layers.cjs — the layers controls on the map, studio and game: station points, hiding zones, each places category, each category's Voronoi cells, the edited category staying on; every switch checked by what MapLibre drew
+npm run verify:shapes       # verify-select-shapes.cjs — selection shapes with a mouse and with a finger (CDP touch events): rectangle, lasso, polygon, add/remove, points/zones, places; checked against an independent point-in-polygon count, and that the map does not pan while drawing
+npm run verify:studio       # verify-studio-tools.cjs — the editor's tools: zone size (asks the map the radius it drew), select/deselect, bulk type change, delete, Undo, Simplify, moving places, an 800 m map played in the game
+npm run verify:resume       # verify-resume.cjs — resuming rounds, ended ones included: the paywall, answers still applied, the round's own board put back (or refused, with why), Results' button, no hider pin on a seeker's map
+npm run verify:google       # verify-google.cjs — Google sign-in's round trip with Google stood in for: button only when on, link vs sign-in, return page, refusals
+npm run verify:flow         # verify-flow.cjs — the site around the game: landing picture, Start a game (city dropdown, flag, capped count, play), the stats page against a fixture file, a map page's address. Community steps SKIP without `supabase start`
 TARGET=https://jetleg-sf.pages.dev/ npm run verify:tools   # any suite, against a deployment
 ```
 
@@ -91,7 +100,10 @@ If anything touched the question list or a layer, **time it with the CPU
 throttled 4x** (`Emulation.setCPUThrottlingRate`). Category switches must be
 single-digit milliseconds; anything over ~300 ms is a freeze on a real phone.
 
-**`verify`, `verify:tools`, `verify:results` and `verify:units` currently stop
+**The game is at `#/play`; the root is the landing page.** Every harness
+appends `#/play` to `TARGET` itself, so `TARGET` stays an origin.
+
+**`verify`, `verify:tools`, `verify:rules`, `verify:results` and `verify:units` currently stop
 at the paywall** — they predate payments and start a round in a fresh browser
 with no pass. They are not passing, they are not running. Until they sign in
 as a developer first (see `verify-developer.ts` for how), do not read their
@@ -149,6 +161,25 @@ band or an empty POI layer is a real signal, not noise to silence.
 
 ## Things that will bite
 
+- **The landing page's map is a picture, and it does not follow the board.**
+  After changing the station set, `npm run shot:landing` (needs a preview
+  server and a connection) and commit `public/landing-sf.jpg`.
+- **MapLibre's canvas container is zero pixels tall** — the canvas overflows
+  it. Its top-left is right for turning a pointer into a map point, but a
+  harness that sizes anything by `getCanvasContainer()` draws a flat line.
+  Measure `getCanvas()` instead.
+- **A page that scrolls inside its own container defeats `fullPage`
+  screenshots.** `.page` is the scroller, not the document, so Playwright
+  captures one viewport and the rest of a long page goes unlooked-at. Grow
+  the container first (`.page{height:auto;overflow:visible}`).
+- **The game chat is never stored on a server.** It goes phone to phone
+  over a broadcast relay and each phone keeps its copy with its rounds, in
+  the game file, deleted with them. Do not add a table or bucket for it.
+- **A photo's EXIF is the hider's exact position.** Anything that sends a
+  picture goes through `chat/photo.ts` `preparePhoto`, never the raw
+  `File`. The `jetleg-chat` skill has the rest.
+- **Two `patch()` calls in one handler in the studio editor undo each
+  other.** Each builds on the draft as rendered. Put both changes in one.
 - **There is more than one board now, and the engine has to be told.** A
   community map can replace the stations or be a different city. Anything
   cached in the engine belongs to a board: clear it in `engine/reset.ts`'s
@@ -161,7 +192,13 @@ band or an empty POI layer is a real signal, not noise to silence.
 - **Mocks do not prove a public API's shape.** The studio's OSM tools passed
   against fixtures and then failed live: Nominatim refuses Node's default
   User-Agent (403), and Overpass rate-limits a dozen quick requests (429).
-  After changing `osm.ts`, drive the studio once unmocked.
+  After changing `osm.ts`, run `npm run time:osm -- "San Francisco"` and
+  drive the studio once unmocked. Details in the `jetleg-osm` skill.
+- **`npm run deploy:dev` leaves the dev build in `dist/`.** A local preview
+  then talks to the cloud project. `npm run build` puts it back.
+- **The local functions container can stop on its own**
+  (`supabase_edge_runtime_JetLeg`, exit 15). The testing code then silently
+  fails to sign anyone in. `docker start supabase_edge_runtime_JetLeg`.
 - **Switching git branches breaks the running functions container.** `main`
   has no `supabase/`; after returning, edge functions fail with "failed to
   determine entrypoint" until `docker restart supabase_edge_runtime_JetLeg`.
@@ -215,7 +252,10 @@ band or an empty POI layer is a real signal, not noise to silence.
   wearing a new hat.
 - **`ZONE_RADIUS_M` is duplicated** in `app/src/engine/candidates.ts` and
   `pipeline/08-promote-stations.ts`. Rendered zones and the engine's zones must
-  agree or the map lies about the count.
+  agree or the map lies about the count. It is now only the *default*: a map
+  can choose its own (`rules.zoneRadiusM`), `enterBoard(bbox, radius)` sets it,
+  and code that needs it reads `data.zoneRadiusM` or `zoneRadius()`. A new
+  literal 500 anywhere is a bug on every map that chose otherwise.
 - **The rulebook PDF is image-only.** `pdftotext` yields 38 bytes. Render pages
   with `LD_LIBRARY_PATH=/home/jonnym/lib pdftoppm -png -r 110` and read them.
 - **`pkill -f <pattern>` kills the calling shell** when the pattern matches its

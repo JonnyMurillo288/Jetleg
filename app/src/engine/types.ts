@@ -80,6 +80,12 @@ export type AskEntry = {
   note?: string;
   /** Excluded from elimination but kept in the log. */
   disabled?: boolean;
+  /**
+   * The game-chat question this entry came from, when it was asked and
+   * answered there (src/chat). Keeps an answer that arrives twice — live and
+   * again in the history on reload — from being logged twice.
+   */
+  chatId?: string;
 };
 
 /** Why a question cannot usefully be asked right now. */

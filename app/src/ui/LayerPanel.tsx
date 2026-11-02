@@ -2,7 +2,7 @@ import type { GameData } from '../data/load';
 import { LAYER_DEFS } from '../data/load';
 import { useGame } from '../store/game';
 import { UNIT_CHOICES, formatDistance } from './units';
-import { ZONE_RADIUS_M } from '../engine/candidates';
+import { zoneRadius } from '../engine/candidates';
 
 /**
  * Layer list. Each point layer gets two switches: the points themselves, and
@@ -37,6 +37,7 @@ export function LayerPanel(props: {
       </div>
       <p className="muted small">
         Browse community maps, or build your own — for San Francisco or any other city — in the map studio.
+        {' '}<a href="#/start">Start on another city or map</a>, or go <a href="#/">home</a>.
         {props.onBuiltIn && <> <button className="link" onClick={props.onBuiltIn}>Go back to the built-in board</button></>}
       </p>
 
@@ -132,7 +133,7 @@ export function LayerPanel(props: {
           <span className="muted small">
             {settings.strictness === 'strict'
               ? 'Zone centre: the station in the middle either fits the answer or it does not. Matches the numbers in the Ask list.'
-              : `Whole zone: kept unless every point in the ${formatDistance(ZONE_RADIUS_M, settings.units)} circle contradicts the answer. Never rules out the true zone, but narrows slowly.`}
+              : `Whole zone: kept unless every point in the ${formatDistance(zoneRadius(), settings.units)} circle contradicts the answer. Never rules out the true zone, but narrows slowly.`}
           </span>
         </span>
         <div className="seg">

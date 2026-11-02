@@ -84,7 +84,7 @@ const STATION_NODES = [
   node(5, 151.35, -33.88, { name: 'Out Of Bounds', railway: 'station' }),  // outside: dropped
   node(6, 151.20, -33.86, { railway: 'station' }),                         // unnamed: dropped
 ];
-// Every category comes back from one combined request, told apart by tag.
+// Places come back from one combined request, told apart by tag.
 const PLACE_NODES = [
   node(11, 151.2113, -33.8663, { name: 'State Library', amenity: 'library' }),
   node(12, 151.1793, -33.8847, { name: 'Glebe Library', amenity: 'library' }),
@@ -95,7 +95,10 @@ const PLACE_NODES = [
   node(31, 151.2, -33.9, { name: 'Only Zoo', tourism: 'zoo' }),
   node(41, 151.21, -33.865, { name: 'Honorary Thing', office: 'diplomatic', diplomatic: 'honorary_consulate' }), // rule: rejected
 ];
-const answer = (q) => (/railway/.test(q) ? STATION_NODES : /"amenity"="library"/.test(q) ? PLACE_NODES : []);
+// The studio asks for the whole board in one request, its parts separated
+// by `make section` markers, as Overpass answers it.
+const section = (name) => ({ type: 'section', id: 1, tags: { name } });
+const answer = (q) => (/make section/.test(q) ? [...PLACE_NODES, section('stations'), ...STATION_NODES, section('coastline'), section('lines')] : []);
 
 async function open(browser, target, viewport) {
   const ctx = await browser.newContext({ viewport, deviceScaleFactor: 1, serviceWorkers: 'block' });
@@ -231,6 +234,10 @@ const lookAt = async (p, ll, zoom) => { await p.evaluate(([c, z]) => window.__ma
   now = await board(ana.p);
   check('the map moves to centre on the new boundary', Math.abs(now.center[0] - 151.2) < 0.06 && Math.abs(now.center[1] + 33.875) < 0.06, JSON.stringify(now.center));
   check('...which is now what the map draws', now.boundaryPoints === 5 && now.boundaryLon > 150);
+  // Requests are seen here, not in the page: poll this side.
+  const boardQueries = () => ana.queries.filter(q => /make section/.test(q) && /151\.1/.test(q)).length;
+  for (let i = 0; i < 40 && !boardQueries(); i++) await ana.p.waitForTimeout(200);
+  check('setting the boundary starts the board’s one OpenStreetMap request', boardQueries() === 1, `${boardQueries()} request(s)`);
 
   // -- stations from OpenStreetMap
   await tab(ana.p, 'Stations');
@@ -239,7 +246,7 @@ const lookAt = async (p, ll, zoom) => { await p.evaluate(([c, z]) => window.__ma
   await settle(ana.p, 800);
   now = await board(ana.p);
   check('stations come from OpenStreetMap: named, inside, one per stop', now.stations === 3 && now.zones === 3 && ['Central', 'Town Hall', 'Bondi Junction'].every(n => now.names.includes(n)), now.names.join(', '));
-  check('...asked for with the pipeline’s own station query', ana.queries.some(q => /station\|halt\|tram_stop/.test(q) && /ferry_terminal/.test(q) && !/bus_stop/.test(q)));
+  check('...asked for with the pipeline’s own station selectors', ana.queries.some(q => /station\|halt\|tram_stop/.test(q) && /ferry_terminal/.test(q) && /bus_stop/.test(q)));
   check('...and their zones are drawn', now.renderedZones > 0);
 
   // -- places from OpenStreetMap
@@ -250,9 +257,9 @@ const lookAt = async (p, ll, zoom) => { await p.evaluate(([c, z]) => window.__ma
   check('every category is fetched and counted', / 3/.test(audit['Libraries']) && / 2/.test(audit['Parks']), audit['Libraries']);
   check('a category with one entry is flagged always-yes, one with none as null', /always/.test(audit['Zoos']) && /null/.test(audit['Museums']));
   check('the rulebook’s exclusions apply: an honorary consulate is not a consulate', / 0/.test(audit['Foreign consulates']) && /null/.test(audit['Foreign consulates']));
-  const placeQueries = ana.queries.filter(q => q.includes('"amenity"="library"'));
-  check('...using the pipeline’s selectors, all in one request', placeQueries.length === 1
-    && ['"leisure"="park"', '"natural"="peak"', '"office"="diplomatic"', '"tourism"="theme_park"', '"natural"="water"'].every(s => placeQueries[0].includes(s)), `${placeQueries.length} request(s)`);
+  const placeQueries = ana.queries.filter(q => q.includes('"amenity"="library"') && /151\.1/.test(q));
+  check('...using the pipeline’s selectors, from the request the boundary already made', placeQueries.length === 1 && boardQueries() === 1
+    && ['"leisure"="park"', '"natural"="peak"', '"office"="diplomatic"', '"tourism"="theme_park"', '"natural"="water"'].every(s => placeQueries[0].includes(s)), `${boardQueries()} request(s)`);
 
   await clickText(ana.p, '^Libraries', '.layeraudit button');
   await ana.p.waitForFunction(() => window.__map.queryRenderedFeatures({ layers: ['pois'] }).length === 3, null, { timeout: 8000 }).catch(() => {});

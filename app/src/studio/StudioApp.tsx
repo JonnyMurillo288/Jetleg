@@ -7,14 +7,16 @@ import type { LngLat } from '../engine/types';
 import { requestPersistence, useActiveRound, useGame } from '../store/game';
 import { useAccount } from '../community/account';
 import { loadActiveMap, saveActiveMap, type ActiveMap } from '../community/active';
-import { CITY, applyMap, checkMap } from '../community/board';
+import { CITY, CITY_COUNTRY, CITY_NAME, applyMap } from '../community/board';
+import { playOn } from '../community/choose';
+import { go, mapHref } from '../route';
 import { mapFromBoard, type MapFile } from '../community/format';
 import { newPack, packFromBoard } from '../community/pack';
 import { CommunityPanel, type NewMapKind } from '../ui/CommunityPanel';
-import { Editor, editorTap, newEditor, type EditorState, type EditorTarget } from './Editor';
+import { DEFAULT_VIEW, StudioLayers, type StudioView } from './StudioLayers';
+import { Editor, editorTap, newEditor, shapePick, type EditorState, type EditorTarget } from './Editor';
 
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] };
-const ALL_LAYERS_ON = { outOfPlay: true, zoneBuffers: true, stationDots: true };
 
 /**
  * The map studio — its own page (`#/maps`), apart from the game.
@@ -26,8 +28,12 @@ const ALL_LAYERS_ON = { outOfPlay: true, zoneBuffers: true, stationDots: true };
  *
  * Whatever is on the map is a real board built by the same `applyMap` the
  * game uses, so a map looks here exactly as it will when played.
+ *
+ * Which map's page is open is the address's to say (`#/maps/map/<id>`), so
+ * a map can be linked to and the back button leaves it. `create` is the
+ * landing page's "Create a map": the same studio, opened on its tools.
  */
-export function StudioApp() {
+export function StudioApp(props: { openId: string | null; create: boolean }) {
   const [base, setBase] = useState<GameData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [active, setActive] = useState<ActiveMap | null>(null);
@@ -40,7 +46,6 @@ export function StudioApp() {
   const round = useActiveRound();
   const roundActive = !!round && !round.endedAt;
   const settings = useGame((s) => s.settings);
-  const updateSettings = useGame((s) => s.updateSettings);
 
   useEffect(() => {
     Promise.all([loadGameData(), loadActiveMap().catch(() => null)])
@@ -48,6 +53,9 @@ export function StudioApp() {
       .catch((e) => setLoadError(String(e)));
     requestPersistence();
   }, []);
+
+  // Leaving a map's page — by its own link or the browser's back — puts the default board back.
+  useEffect(() => { if (!props.openId) setPreview(null); }, [props.openId]);
 
   // What the map shows: the draft, else the map whose page is open, else the board in play.
   const shown: MapFile | null = editor?.draft ?? preview ?? active?.map ?? null;
@@ -57,23 +65,31 @@ export function StudioApp() {
     // A station map for some other city cannot be drawn on this board.
     const playable = shown && !(shown.kind === 'stations' && shown.city !== CITY);
     const board = playable ? applyMap(base, shown) : base;
-    enterBoard(board.bbox);
+    enterBoard(board.bbox, board.zoneRadiusM);
     return board;
     // Only what is drawn: typing a name must not rebuild every zone.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [base, shown?.kind, shown?.stations, shownPack?.boundary, shownPack?.layers, shownPack?.voronoi]);
+  }, [base, shown?.kind, shown?.stations, shown?.rules.zoneRadiusM, shownPack?.boundary, shownPack?.layers, shownPack?.voronoi]);
 
   const aliveIds = useMemo(() => new Set((data?.stations ?? []).map((s) => s.id)), [data]);
 
+  // What the map shows: the layers control's choice, plus the category being
+  // edited, which has to stay drawn for its points to be tapped.
+  const [view, setView] = useState<StudioView>(DEFAULT_VIEW);
+  const editing = editor?.layerKey && (editor.tab === 'layers' || editor.tab === 'voronoi') ? editor.layerKey : null;
+  const editingCells = !!editing && !!editor?.showCells;
   const visibleLayers = useMemo(() => {
-    const key = editor?.layerKey;
-    if (!key || (editor.tab !== 'layers' && editor.tab !== 'voronoi')) return [];
-    return editor.showCells ? [key, `${key}:voronoi`] : [key];
-  }, [editor?.layerKey, editor?.showCells, editor?.tab]);
+    const keys = [...view.places, ...view.cells.map((k) => `${k}:voronoi`)];
+    if (editing) keys.push(editing);
+    if (editing && editingCells) keys.push(`${editing}:voronoi`);
+    return [...new Set(keys)];
+  }, [view, editing, editingCells]);
+  const mapLayers = useMemo(() => ({ outOfPlay: false, zoneBuffers: view.zoneBuffers, stationDots: view.stationDots }), [view.zoneBuffers, view.stationDots]);
 
   /** A boundary being drawn, in the measuring tool's own draft style. */
   const drawingFc = useMemo<FeatureCollection>(() => {
-    const pts = editor?.drawing;
+    // A boundary being drawn, or a polygon selection being tapped out: drawn the same way.
+    const pts = editor?.drawing ?? (editor?.picking && editor.shape === 'polygon' ? editor.shapePts : null);
     if (!pts?.length) return EMPTY;
     const features: FeatureCollection['features'] = pts.map((p) => ({
       type: 'Feature', properties: { kind: 'vertex', draft: true }, geometry: { type: 'Point', coordinates: p },
@@ -86,7 +102,19 @@ export function StudioApp() {
       });
     }
     return { type: 'FeatureCollection', features };
-  }, [editor?.drawing]);
+  }, [editor?.drawing, editor?.picking, editor?.shape, editor?.shapePts]);
+
+  /** What is selected for a bulk edit, ringed on the map. */
+  const pickedFc = useMemo<FeatureCollection>(() => {
+    if (!editor?.picked.length) return EMPTY;
+    const ids = new Set(editor.picked);
+    const at: LngLat[] = editor.tab === 'stations'
+      ? editor.draft.stations.filter((s) => ids.has(s.id)).map((s) => [s.lon, s.lat])
+      : editor.tab === 'layers' && editor.layerKey && editor.draft.kind === 'pack'
+        ? (editor.draft.layers[editor.layerKey] ?? []).flatMap((f) => (ids.has(f.properties.id) && f.geometry.type === 'Point' ? [f.geometry.coordinates as LngLat] : []))
+        : [];
+    return { type: 'FeatureCollection', features: at.map((c) => ({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: c } })) };
+  }, [editor?.picked, editor?.tab, editor?.layerKey, editor?.draft]);
 
   /** The hollow ring marks the spot being added, or the thing selected. */
   const marker = useMemo<LngLat | null>(() => {
@@ -113,9 +141,9 @@ export function StudioApp() {
     if (!base) return;
     const rules = { gameSize: settings.gameSize };
     if (kind === 'stations') {
-      edit(mapFromBoard(base.stations, { ...rules, supervisorDistrictsAsAdmin4: settings.supervisorDistrictsAsAdmin4 }, '', CITY), { type: 'new' });
+      edit({ ...mapFromBoard(base.stations, { ...rules, supervisorDistrictsAsAdmin4: settings.supervisorDistrictsAsAdmin4 }, '', CITY), country: CITY_COUNTRY }, { type: 'new' });
     } else if (kind === 'sf-pack') {
-      edit(packFromBoard(base, 'San Francisco', CITY, rules), { type: 'new' });
+      edit({ ...packFromBoard(base, CITY_NAME, CITY, rules), country: CITY_COUNTRY }, { type: 'new' });
     } else {
       // A new city needs somewhere to start. Whatever the map is looking at
       // becomes a first, rectangular boundary; the Boundary tab replaces it.
@@ -134,15 +162,7 @@ export function StudioApp() {
   /** Choose a board and go and play on it. */
   const play = async (next: ActiveMap): Promise<string | null> => {
     if (!base) return 'The board is still loading.';
-    if (roundActive) return 'You have a round in progress. End it before changing boards.';
-    const blocker = checkMap(next.map, base.boundary).find((p) => p.blocking);
-    if (blocker) return blocker.text;
-    await saveActiveMap(next);
-    // A map's house rules are applied once, when it is chosen; the player
-    // can still change them on the game's Map tab afterwards.
-    updateSettings(next.map.rules);
-    window.location.hash = '';
-    return null;
+    return playOn(next, base.boundary);
   };
 
   const builtIn = async () => {
@@ -158,8 +178,9 @@ export function StudioApp() {
     <div className={`app studio ${collapsed ? 'collapsed' : ''}`}>
       <header className="topbar">
         <div className="topbar-row">
-          <a className="buttonlink" href="#">← Game</a>
+          <a className="buttonlink" href="#/">← Home</a>
           <strong className="grow studiotitle">Map studio</strong>
+          <a className="buttonlink" href="#/play">Game</a>
           <span className="muted small">
             {account.state === 'signedIn' ? account.displayName ?? account.email : account.state === 'guest' ? 'Not signed in' : ''}
           </span>
@@ -173,7 +194,7 @@ export function StudioApp() {
         hiddenOverlays={[]}
         visibleLayers={visibleLayers}
         outOfPlay={null}
-        mapLayers={ALL_LAYERS_ON}
+        mapLayers={mapLayers}
         fix={null}
         manualPoint={marker}
         pins={{}}
@@ -181,10 +202,15 @@ export function StudioApp() {
         planFc={EMPTY}
         peersFc={EMPTY}
         lookAt={lookAt}
+        pickedFc={pickedFc}
+        shapeTool={editor?.picking && (editor.shape === 'rect' || editor.shape === 'lasso') ? editor.shape : null}
+        onShape={(ring) => editor && setEditor(shapePick(editor, ring))}
         onMapClick={(ll) => editor && setEditor(editorTap(editor, ll))}
         onStationClick={(id, ll) => editor && setEditor(editorTap(editor, ll, { type: 'station', id }))}
         onPoiClick={editor ? (key, id, ll) => setEditor(editorTap(editor, ll, { type: 'poi', key, id })) : undefined}
       />
+
+      <StudioLayers data={data} view={view} onView={setView} editing={editing} editingCells={editingCells} />
 
       <div className="sheet">
         <button className="sheet-handle" onClick={() => setCollapsed(!collapsed)} aria-label={collapsed ? 'Expand panel' : 'Collapse panel for a bigger map'}>
@@ -205,7 +231,10 @@ export function StudioApp() {
               const err = await play({ mapId: null, versionId: null, map });
               if (err) alert(err);
             }}
-            onPublished={() => setEditor(null)}
+            // Back to the list, where the map just published now is — not to
+            // the page of the map it was branched from, which is where the
+            // address would otherwise still point.
+            onPublished={() => { setEditor(null); go('/maps'); }}
           />
         ) : (
           <CommunityPanel
@@ -218,6 +247,9 @@ export function StudioApp() {
             onNew={startNew}
             onEdit={edit}
             onPreview={setPreview}
+            openId={props.openId}
+            onOpen={(id) => go(id ? mapHref(id).slice(1) : '/maps')}
+            create={props.create}
           />
         )}
       </div>

@@ -12,7 +12,8 @@ phone, so a hider and a seeker running the app never see each other's data.
 > it adds an optional Supabase backend — game rooms with live seeker
 > locations, a map studio for building and sharing boards for any city,
 > likes and comments, email sign-in and developer access. Playing alone on one phone still needs none of it. See
-> [NEXT_STEPS.md](NEXT_STEPS.md) for how to try it and what is left to do.
+> [NEXT_STEPS.md](NEXT_STEPS.md) for how to try it and what is left to do, and
+> [QUICKSTART_DEV.md](QUICKSTART_DEV.md) to put a dev copy online for testing on phones.
 
 ```
 pipeline/   build-time data: fetches OSM + DataSF, emits static GeoJSON
@@ -210,6 +211,80 @@ SF has no formal 4th administrative division, which kills that question. Turning
 on the house rule in Layers uses the 11 supervisor districts instead — compact,
 evenly distributed, and comparable to libraries in cutting power. Off by
 default, since it deviates from the printed rules and both sides must agree.
+
+## Building a board for another city
+
+The map studio (`/#/maps` → **New city**) builds a board for any place the
+way the pipeline built San Francisco's, in the browser.
+
+**Where the data comes from.** Choosing a boundary (searched on Nominatim,
+drawn, or imported) starts a single Overpass request straight away. It
+fetches everything the studio needs: transit stops, the twelve place
+categories, coastline and transit lines. The Stations and Places tabs all
+read from that one answer, so by the time you click over to them it is
+usually already there. A busy public mirror is skipped for the next one
+instead of waited on. San Francisco takes about 25–40 s, most of it in the
+public queue. The details are in the `jetleg-osm` skill
+(`.claude/skills/jetleg-osm/SKILL.md`).
+
+**Stations.** Two buttons: *Rail, metro, tram and ferry stops*, or the same
+*…and bus stops*. Stops in OpenStreetMap are usually several nodes for one
+place (a platform each way, an entrance, the station itself), so stops
+with the same name within 150 m are folded into one station first. Each
+station keeps every mode any of its nodes had. Unnamed stops and stops
+outside the boundary are dropped.
+
+### When a city has more than 600 stations
+
+A map can hold at most **600 stations**. With bus stops included, most real
+cities are over that: San Francisco has 2,436 and Los Angeles 4,820. Rather
+than refuse, the studio keeps 600 that cover the city as evenly as
+possible, and its note says so:
+
+> 600 stations from OpenStreetMap, bus stops included: 2436 was over the
+> limit of 600, so they were spaced out evenly across the board, rail, metro,
+> tram and ferry first.
+
+**How it chooses**, in order:
+
+1. **Rail, metro, tram and ferry stations first, all of them.** A station
+   counts as rail if *any* of its modes is not bus, so a stop served by both
+   a train and buses is a rail station. These are where the game is
+   normally played, and there are rarely many: San Francisco has 257, and
+   every one is kept.
+2. **Bus stops fill the gaps.** Each remaining place goes to the bus stop
+   that is **farthest from every station already kept**. Then the distances
+   are updated, and the next place goes to whichever stop is now farthest.
+   This repeats until there are 600.
+3. **The first pick is the most central station**, because there is nothing
+   yet to be far from. That makes the result the same every time for the
+   same data.
+
+The effect is that each new station lands in the biggest remaining hole in
+coverage. A neighbourhood with no rail gets bus stations before a
+downtown street gets its fifth, and stations end up roughly evenly spaced
+across the board. Simply taking the first 600 in OpenStreetMap's order
+would instead fill one part of the city and leave another with no hiding
+zones at all.
+
+Distances are measured in metres in the board's own UTM zone, not in
+degrees, for the same reason the Voronoi cells are (see *Geometry*). The
+stations that are kept stay in their original order, so names, ids and
+folding are exactly what they would have been without the cap.
+
+Edge cases:
+
+- **More than 600 rail stations**: the same spreading is applied to the
+  rail stations alone, and no bus stops are added.
+- **Under 600**: nothing is removed.
+- **A map file with more than 600 stations is still refused**, not
+  trimmed. A list someone made by hand is theirs to cut.
+- **Speed**: about 20 ms for a city the size of San Francisco or Los
+  Angeles, and 136 ms for 30,000 stops. It is never the slow part.
+
+The result is a starting point, like everything the studio fetches. Remove
+stations by tapping them, or use *Select* to clear an area and add your own
+in their place.
 
 ## Not built
 

@@ -15,3 +15,6 @@ pipeline/input/gtfs/*.zip
 # Local overrides and editor noise
 *.local
 .DS_Store
+
+# Password
+supabase-password.txt

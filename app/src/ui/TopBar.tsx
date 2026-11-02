@@ -4,14 +4,18 @@ import { describeAccuracy, isStale, useFixAge, type LocationState } from '../loc
 import { formatDistance } from './units';
 import { getCachedEntitlement, type CachedEntitlement } from '../payments/entitlement';
 
+export type Tab = 'play' | 'layers' | 'results' | 'game' | 'chat' | 'help';
+
 export function TopBar(props: {
   loc: LocationState;
   alive: number;
   total: number;
-  tab: 'play' | 'layers' | 'results' | 'game' | 'help';
-  onTab: (t: 'play' | 'layers' | 'results' | 'game' | 'help') => void;
+  tab: Tab;
+  onTab: (t: Tab) => void;
   /** The code of the game room this device is in, if any. */
   gameCode: string | null;
+  /** Game chat: unread items, and questions a hider still owes an answer. */
+  chatBadge: { unread: number; owed: number };
 }) {
   const { loc, alive, total, tab, onTab } = props;
   const role = useGame((s) => s.role);
@@ -38,7 +42,7 @@ export function TopBar(props: {
         </div>
       </div>
 
-      <LocationLine loc={loc} tab={tab} onTab={onTab} gameCode={props.gameCode} />
+      <LocationLine loc={loc} tab={tab} onTab={onTab} gameCode={props.gameCode} chatBadge={props.chatBadge} />
       <EntitlementLine />
     </header>
   );
@@ -85,9 +89,10 @@ function formatDuration(ms: number): string {
  */
 function LocationLine(props: {
   loc: LocationState;
-  tab: 'play' | 'layers' | 'results' | 'game' | 'help';
-  onTab: (t: 'play' | 'layers' | 'results' | 'game' | 'help') => void;
+  tab: Tab;
+  onTab: (t: Tab) => void;
   gameCode: string | null;
+  chatBadge: { unread: number; owed: number };
 }) {
   const { loc } = props;
   const ageSeconds = useFixAge(loc.fix);
@@ -142,6 +147,23 @@ function LocationLine(props: {
         >
           {props.gameCode ? `Game ${props.gameCode}` : 'Game'}
         </button>
+
+        {props.gameCode && (
+          // A question owed is louder than a message unread: it has a clock on it.
+          <button
+            className={`gpstoggle chatbtn ${props.tab === 'chat' ? 'on' : ''} ${props.chatBadge.owed ? 'owed' : ''}`}
+            onClick={() => props.onTab(props.tab === 'chat' ? 'play' : 'chat')}
+            aria-pressed={props.tab === 'chat'}
+            title="Questions and chat with everyone in this game"
+          >
+            Chat
+            {(props.chatBadge.owed || props.chatBadge.unread) > 0 && (
+              <span className="badge" aria-label={props.chatBadge.owed ? `${props.chatBadge.owed} to answer` : `${props.chatBadge.unread} unread`}>
+                {props.chatBadge.owed || props.chatBadge.unread}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       {manual.enabled && (

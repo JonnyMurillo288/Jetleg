@@ -8,6 +8,7 @@
 // SUPABASE_URL / SUPABASE_ANON_KEY env vars.
 import { createClient } from '@supabase/supabase-js';
 import { buildGamePayload } from './src/sync/payload';
+import { writeRound } from './src/sync/write';
 import { metres } from './src/engine/project';
 import { QUESTIONS } from './src/engine/questions';
 import type { Round } from './src/store/game';
@@ -119,6 +120,35 @@ async function signInDevice(displayName: string) {
 
   const { error: outsiderInsertError } = await deviceB.from('sessions').insert({ ...payload.session, id: crypto.randomUUID() });
   check('an outsider device cannot insert into a team it is not on', !!outsiderInsertError);
+
+  // ---- a round resumed after it ended, and ended again
+  // The first send above used a random session id, as rounds synced before
+  // resuming existed did. The second goes through the app's own write, with
+  // the round's id as the session's, one question deleted and one added.
+  const resumed: Round = {
+    ...round,
+    endedAt: round.endedAt! + 3_600_000,
+    asks: [
+      ...round.asks.slice(1),
+      { ...round.asks[0], id: crypto.randomUUID(), askedAt: round.asks[0].askedAt + 1_800_000 },
+    ],
+  };
+  const again = buildGamePayload(resumed, settings, profileA, { id: team!.id, joinCode: team!.join_code }, resumed.id);
+  const rewrite = await writeRound(deviceA, again);
+  check('a resumed round, ended again, syncs instead of failing on its own id', rewrite.ok, rewrite);
+  const { data: rows } = await deviceA.from('rounds').select('id, session_id').eq('id', round.id);
+  check('...as one round, not two', rows?.length === 1 && rows[0].session_id === resumed.id, rows);
+  const { data: theAsks } = await deviceA.from('asks').select('id').eq('round_id', round.id);
+  const want = again.asks.map((a) => a.id).sort();
+  check('...whose questions are the ones it has now, the deleted one gone', JSON.stringify((theAsks ?? []).map((a) => a.id).sort()) === JSON.stringify(want), { got: theAsks?.length, want: want.length });
+  const { data: oldSession } = await deviceA.from('sessions').select('id').eq('id', sessionId);
+  check('...and the session it was first sent under is gone with it', oldSession?.length === 0, oldSession);
+  const retry = await writeRound(deviceA, again);
+  const { data: afterRetry } = await deviceA.from('asks').select('id').eq('round_id', round.id);
+  check('sending the same round twice (a retry) changes nothing', retry.ok && afterRetry?.length === want.length, retry);
+  const theirs = await writeRound(deviceB, { ...again, session: { ...again.session, user_id: (await deviceB.auth.getUser()).data.user!.id } });
+  const { data: stillMine } = await deviceA.from('rounds').select('session_id').eq('id', round.id).single();
+  check('another team’s device cannot overwrite it', !theirs.ok && stillMine?.session_id === resumed.id, theirs);
 
   console.log(`\n${fail.length === 0 ? 'ALL PASS' : `${fail.length} FAILED: ${fail.join(', ')}`}`);
   process.exit(fail.length === 0 ? 0 : 1);

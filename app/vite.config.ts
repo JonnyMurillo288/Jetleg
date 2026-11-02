@@ -58,7 +58,8 @@ export default defineConfig({
       workbox: {
         // Layer files are large; the default 2 MB cap would silently skip them.
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
-        globPatterns: ['**/*.{js,css,html,geojson,json,png,svg}'],
+        // jpg: the landing page's picture of the board.
+        globPatterns: ['**/*.{js,css,html,geojson,json,png,svg,jpg}'],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/tiles\.openfreemap\.org\/.*/i,

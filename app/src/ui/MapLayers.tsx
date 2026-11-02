@@ -1,6 +1,6 @@
 import { useGame, type MapLayers as MapLayerState } from '../store/game';
 import { LAYER_DEFS, type GameData } from '../data/load';
-import { ZONE_RADIUS_M } from '../engine/candidates';
+import { zoneRadius } from '../engine/candidates';
 import { formatDistance } from './units';
 
 /**
@@ -28,11 +28,12 @@ export function LayersPanel({
 
   const board: { key: keyof MapLayerState; label: string; hint: string }[] = [
     { key: 'outOfPlay', label: 'Out of play', hint: 'Shade everywhere the answers rule out' },
-    { key: 'zoneBuffers', label: 'Zone buffers', hint: `${formatDistance(ZONE_RADIUS_M, units)} circle around each station` },
+    { key: 'zoneBuffers', label: 'Zone buffers', hint: `${formatDistance(zoneRadius(), units)} circle around each station` },
     { key: 'stationDots', label: 'Station dots', hint: 'The stations themselves' },
   ];
 
   const withCells = cellLayers(data);
+  const places = LAYER_DEFS.filter((d) => (data.layers[d.key]?.features.length ?? 0) > 0);
   const activeCells = withCells.filter((d) => visible.includes(`${d.key}:voronoi`)).length;
 
   return (
@@ -46,6 +47,26 @@ export function LayersPanel({
           </span>
         </label>
       ))}
+
+      {places.length > 0 && (
+        <>
+          <div className="maplayers-section">
+            Places
+            <span className="muted small">What the questions ask about — the same switches as the Map tab</span>
+          </div>
+          <div className="maplayers-scroll">
+            {places.map((d) => (
+              <label key={d.key} className="tight">
+                <input type="checkbox" checked={visible.includes(d.key)} onChange={() => toggleLayer(d.key)} />
+                <span>
+                  {d.label}
+                  <span className="muted small">{data.layers[d.key].features.length} {d.kind === 'line' ? 'lines' : 'places'}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </>
+      )}
 
       <div className="maplayers-section">
         Voronoi cells

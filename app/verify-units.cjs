@@ -79,7 +79,7 @@ const check = (name, ok, detail) => {
   p.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
   p.on('console', m => { if (m.type() === 'error') errors.push('CONSOLE: ' + m.text().slice(0, 200)); });
 
-  const target = process.env.TARGET || 'http://127.0.0.1:4310/';
+  const target = (process.env.TARGET || 'http://127.0.0.1:4310/').replace(/#.*$/, '') + '#/play'; // the game's page; the root is the landing page
   console.log('target:', target, '\n');
   await p.goto(target, { waitUntil: 'domcontentloaded' });
   await p.waitForFunction(() => window.__mapReady === true, null, { timeout: 45000 });

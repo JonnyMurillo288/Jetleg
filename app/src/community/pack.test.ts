@@ -10,7 +10,7 @@ import { QUESTIONS, QUESTIONS_BY_ID } from '../engine/questions';
 import { enterBoard } from '../engine/reset';
 import { applyMap, checkMap } from './board';
 import { parseMapFile, serializeMap, type PackMap } from './format';
-import { parsePois, parseStations, parseTransitLines } from './osm';
+import { POI_DEFS, boardQuery, parsePois, parseStations, parseTransitLines, splitBoard } from './osm';
 import {
   auditPack,
   boundaryStats,
@@ -232,5 +232,24 @@ describe('reading OpenStreetMap', () => {
       { type: 'relation', id: 3, tags: { ref: 'BART-far' }, members: [way([[-121.9, 37.5], [-121.8, 37.4]])] },
     ] as any, b);
     expect(lines.map((l) => l.properties.id)).toEqual(['line-N']);
+  });
+
+  it('splits clipped line geometry at its gaps instead of joining across them', () => {
+    const p = (lon: number, lat: number) => ({ lon, lat });
+    const [line] = parseTransitLines([
+      { type: 'relation', id: 1, tags: { ref: 'T' }, members: [{ type: 'way', geometry: [p(-122.42, 37.77), p(-122.43, 37.77), null, null, p(-122.44, 37.76), p(-122.45, 37.76), null, p(-122.46, 37.75)] }] },
+    ] as any, b);
+    expect(line.geometry).toEqual({ type: 'MultiLineString', coordinates: [[[-122.42, 37.77], [-122.43, 37.77]], [[-122.44, 37.76], [-122.45, 37.76]]] });
+  });
+
+  it('asks for the whole board in one request and sorts the answer back out', () => {
+    const q = boardQuery([-122.52, 37.70, -122.35, 37.84]);
+    expect(Object.values(POI_DEFS).every((d) => q.includes(`["${d.tag[0]}"="${d.tag[1]}"]`))).toBe(true);
+    expect(q).toMatch(/bus_stop/);
+    expect(q).toMatch(/out geom\(37\.7,-122\.52,37\.84,-122\.35\);$/); // lines clipped to the box
+    const el = (type: string, id: number, name?: string) => ({ type, id, ...(name ? { tags: { name } } : {}) });
+    const board = splitBoard([el('way', 1), el('section', 1, 'stations'), el('node', 2), el('node', 3), el('section', 1, 'coastline'), el('section', 1, 'lines'), el('relation', 4)] as any);
+    expect([board.pois, board.stations, board.coastline, board.lines].map((x) => x.map((e) => e.id))).toEqual([[1], [2, 3], [], [4]]);
+    expect(() => splitBoard([el('section', 1, 'mystery')] as any)).toThrow();
   });
 });

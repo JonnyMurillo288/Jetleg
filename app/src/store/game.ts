@@ -2,8 +2,9 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { get as idbGet, set as idbSet, del as idbDel } from 'idb-keyval';
 import type { BoardStamp } from '../community/active';
-import type { AskEntry, GameSize, Role } from '../engine/types';
+import type { Answer, AskEntry, GameSize, Role } from '../engine/types';
 import type { Strictness } from '../engine/candidates';
+import { gameFileText, readGameFile } from '../stats/gamefile';
 
 /**
  * All state is local to this device and this player, and IndexedDB is the
@@ -11,8 +12,10 @@ import type { Strictness } from '../engine/candidates';
  * exchange anything, live, between phones.
  *
  * A finished round may additionally sync to Supabase as history (see
- * `../sync`), but only station-level/jittered data, only after it ends, and
- * only best-effort: sync failing never blocks or corrupts the local game.
+ * `../sync`), but only if the player has turned that on
+ * (`settings.shareHistory`), only station-level/jittered data, only after it
+ * ends, and only best-effort: sync failing never blocks or corrupts the
+ * local game.
  *
  * Rounds are namespaced by role, so hiding in round 1 and seeking in round 2
  * keeps both cleanly separated.
@@ -43,7 +46,23 @@ export type Round = {
    * replay their own answers and see what the seekers can deduce.
    */
   seekerPin?: [number, number];
+  /**
+   * Seeker: questions asked in the game chat and not yet answered, by chat
+   * question id. What the engine needs to log the answer — where the seeker
+   * stood — stays here on the phone; the chat row on the server carries
+   * the question only. Removed as each answer is logged.
+   */
+  chatAsks?: Record<string, PendingChatAsk>;
+  /**
+   * The game rooms whose chat was going on during this round. The chat
+   * itself is kept on this phone beside the rounds (chat/local.ts), goes into
+   * the game file with them, and is deleted once no round names its game
+   * and the phone has left it.
+   */
+  chatGames?: string[];
 };
+
+export type PendingChatAsk = Omit<AskEntry, 'id' | 'answer' | 'chatId'>;
 
 /** The three things the map overlay can show. */
 export type MapLayers = {
@@ -85,6 +104,15 @@ type Settings = {
   units: Units;
   /** House rule: use supervisor districts as the 4th administrative division. */
   supervisorDistrictsAsAdmin4: boolean;
+  /**
+   * Also save finished rounds to the team's history on the server.
+   *
+   * Off unless the player turns it on. A round is theirs: it lives on this
+   * device and in whatever files they export, and goes nowhere else without
+   * being asked. Absent on a device that predates the setting, which reads
+   * as off.
+   */
+  shareHistory?: boolean;
 };
 
 type State = {
@@ -157,14 +185,37 @@ type State = {
   startRound: (label?: string) => void;
   endRound: () => void;
   setActiveRound: (id: string | null) => void;
+  /**
+   * Make a round the one being played again — finished or not. A finished
+   * round is reopened: its end is cleared, and ending it again ends it anew.
+   * Switches to the round's role, since a round is only ever shown under
+   * its own. The board is the caller's to have put back first.
+   */
+  resumeRound: (id: string) => void;
   deleteRound: (id: string) => void;
 
   addAsk: (a: AskEntry) => void;
+  /** Seeker: a question just asked in the game chat, waiting for its answer. */
+  addChatAsk: (chatId: string, pending: PendingChatAsk) => void;
+  /**
+   * Seeker: the hider answered a chat question — log it. Only into the
+   * round it was asked in, only while that round is being played, and only
+   * once, however many times the answer is delivered.
+   */
+  applyChatAnswer: (chatId: string, answer: Answer) => void;
+  /** Note that this game's chat belongs with the round being played. */
+  addChatGame: (gameId: string) => void;
   updateAsk: (id: string, patch: Partial<AskEntry>) => void;
   removeAsk: (id: string) => void;
   undoLastAsk: () => void;
 
   setHiderStation: (id: string | undefined) => void;
+  /**
+   * Record where the hider turned out to be, on a round that is over. A
+   * seeker only learns it at the end, and it is what turns a finished log
+   * into "how close did we get".
+   */
+  setRoundHiderStation: (roundId: string, stationId: string | undefined) => void;
   setSeekerPin: (ll: [number, number] | undefined) => void;
   toggleLayer: (key: string) => void;
   toggleMapLayer: (key: keyof MapLayers) => void;
@@ -190,6 +241,8 @@ type State = {
   updateSettings: (patch: Partial<Settings>) => void;
 
   exportJSON: () => string;
+  /** One round as a game file of its own; null if there is no such round. */
+  exportRound: (roundId: string) => string | null;
   importJSON: (raw: string) => { ok: true } | { ok: false; error: string };
 };
 
@@ -272,7 +325,8 @@ export const useGame = create<State>()(
         set({ rounds: get().rounds.map((r) => (r.id === id ? { ...r, endedAt } : r)) });
 
         const ended = get().rounds.find((r) => r.id === id);
-        if (ended) {
+        if (ended && get().settings.shareHistory) {
+          // Only with the player's say-so (settings.shareHistory).
           // Fire-and-forget: a sync failure (offline, no backend configured,
           // paused free-tier project) must never surface as a game error.
           // syncFinishedRound queues on failure and retries on reconnect.
@@ -282,6 +336,16 @@ export const useGame = create<State>()(
 
       setActiveRound: (activeRoundId) => set({ activeRoundId }),
 
+      resumeRound: (id) => {
+        const round = get().rounds.find((r) => r.id === id);
+        if (!round) return;
+        set({
+          role: round.role,
+          rounds: get().rounds.map((r) => (r.id === id ? { ...r, endedAt: undefined } : r)),
+          activeRoundId: id,
+        });
+      },
+
       deleteRound: (id) =>
         set({
           rounds: get().rounds.filter((r) => r.id !== id),
@@ -289,6 +353,21 @@ export const useGame = create<State>()(
         }),
 
       addAsk: (a) => patchRound(set, get, (r) => ({ ...r, asks: [...r.asks, a] })),
+
+      addChatAsk: (chatId, pending) =>
+        patchRound(set, get, (r) => ({ ...r, chatAsks: { ...r.chatAsks, [chatId]: pending } })),
+
+      addChatGame: (gameId) =>
+        patchRound(set, get, (r) => (r.chatGames?.includes(gameId) ? r : { ...r, chatGames: [...(r.chatGames ?? []), gameId] })),
+
+      applyChatAnswer: (chatId, answer) =>
+        patchRound(set, get, (r) => {
+          const pending = r.chatAsks?.[chatId];
+          if (!pending || r.endedAt) return r;
+          const { [chatId]: _done, ...rest } = r.chatAsks!;
+          if (r.asks.some((a) => a.chatId === chatId)) return { ...r, chatAsks: rest };
+          return { ...r, chatAsks: rest, asks: [...r.asks, { ...pending, id: uid(), answer, chatId }] };
+        }),
 
       updateAsk: (id, patch) =>
         patchRound(set, get, (r) => ({
@@ -302,6 +381,9 @@ export const useGame = create<State>()(
       undoLastAsk: () => patchRound(set, get, (r) => ({ ...r, asks: r.asks.slice(0, -1) })),
 
       setHiderStation: (hiderStationId) => patchRound(set, get, (r) => ({ ...r, hiderStationId })),
+
+      setRoundHiderStation: (roundId, hiderStationId) =>
+        set({ rounds: get().rounds.map((r) => (r.id === roundId && r.endedAt ? { ...r, hiderStationId } : r)) }),
 
       setSeekerPin: (seekerPin) => {
         // Placing a pin by hand is a decision to use it, over any live seeker.
@@ -402,26 +484,31 @@ export const useGame = create<State>()(
 
       exportJSON: () => {
         const { rounds, settings, role } = get();
-        return JSON.stringify({ app: 'jetleg-sf', version: 1, exportedAt: Date.now(), role, settings, rounds }, null, 2);
+        return gameFileText(rounds, settings, role);
+      },
+
+      exportRound: (roundId) => {
+        const { rounds, settings } = get();
+        const round = rounds.find((r) => r.id === roundId);
+        return round ? gameFileText([round], settings, round.role) : null;
       },
 
       importJSON: (raw) => {
-        try {
-          const doc = JSON.parse(raw);
-          if (doc.app !== 'jetleg-sf') return { ok: false, error: 'Not a JetLeg export file.' };
-          if (!Array.isArray(doc.rounds)) return { ok: false, error: 'No rounds in file.' };
-          // Merge rather than replace, so importing a backup never destroys
-          // rounds recorded on this device since the export.
-          const existing = new Set(get().rounds.map((r) => r.id));
-          const incoming = (doc.rounds as Round[]).filter((r) => !existing.has(r.id));
-          set({
-            rounds: [...get().rounds, ...incoming],
-            settings: { ...get().settings, ...(doc.settings ?? {}) },
-          });
-          return { ok: true };
-        } catch (e) {
-          return { ok: false, error: e instanceof Error ? e.message : 'Could not parse file.' };
-        }
+        // The same reader the stats page uses, so a file that opens there
+        // imports here, and a malformed round is left out of both.
+        const read = readGameFile(raw);
+        if (!read.ok) return read;
+        // Merge rather than replace, so importing a backup never destroys
+        // rounds recorded on this device since the export.
+        const existing = new Set(get().rounds.map((r) => r.id));
+        const incoming = read.file.rounds.filter((r) => !existing.has(r.id));
+        // Whether rounds are shared is this device's decision, not the file's.
+        const { shareHistory: _ignored, ...settings } = read.file.settings;
+        set({
+          rounds: [...get().rounds, ...incoming],
+          settings: { ...get().settings, ...settings },
+        });
+        return { ok: true };
       },
     }),
     {

@@ -1,7 +1,7 @@
 import { useGame } from '../store/game';
 import { PLAN_COLORS, type PlanCandidate } from '../engine/plan';
 import { formatDistance } from './units';
-import { ZONE_RADIUS_M } from '../engine/candidates';
+import { zoneRadius } from '../engine/candidates';
 import type { Question } from '../engine/types';
 
 /**
@@ -120,7 +120,7 @@ export function PlanPanel(props: {
       <p className="muted small pad-x">
         Splits count station centre points, the same as the Ask list. Elimination itself
         follows the rule set in Map — with “Whole zone” a candidate survives unless its
-        whole {formatDistance(ZONE_RADIUS_M, units)} circle contradicts the answer, so the
+        whole {formatDistance(zoneRadius(), units)} circle contradicts the answer, so the
         real count after asking can be a little higher.
       </p>
     </div>

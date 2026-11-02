@@ -44,7 +44,7 @@ const state = p => p.evaluate(() => ({
   p.on('pageerror', e => errors.push('PAGEERROR: ' + e.message));
   p.on('console', m => { if (m.type() === 'error') errors.push('CONSOLE: ' + m.text().slice(0, 160)); });
 
-  await p.goto('http://127.0.0.1:4310/', { waitUntil: 'domcontentloaded' });
+  await p.goto('http://127.0.0.1:4310/#/play', { waitUntil: 'domcontentloaded' });
   await p.waitForFunction(() => document.querySelector('.count'), null, { timeout: 30000 });
   await p.waitForTimeout(3500);
   console.log('1 loaded          ', JSON.stringify(await state(p)));
