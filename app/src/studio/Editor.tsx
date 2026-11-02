@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { MultiPolygon, Polygon } from 'geojson';
 import type { GameData } from '../data/load';
 import { LAYER_DEFS, VORONOI_KEYS } from '../data/layers';
@@ -46,6 +46,7 @@ import {
   clipToBoundary,
   coastlineFromBoundary,
   finalizePack,
+  finalizePackStepwise,
   largestLandmass,
   packFromBoard,
   polygonFromTaps,
@@ -220,9 +221,21 @@ export function Editor(props: Props) {
   const { editor, onChange, base } = props;
   const { draft } = editor;
   const pack = draft.kind === 'pack' ? draft : null;
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busy, setBusyState] = useState<Busy | null>(null);
+  const setBusy = (text: string | null, tool?: string, progress?: number) =>
+    setBusyState((was) => (text === null ? null : {
+      text,
+      tool,
+      progress,
+      // A retry or a step of the same tool keeps its clock running.
+      since: was && was.tool === tool ? was.since : Date.now(),
+    }));
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  // For work that spans renders: what the editor is now, not when it started.
+  const latestRef = useRef(editor);
+  latestRef.current = editor;
+  const latest = () => latestRef.current;
 
   /**
    * Any edit that moves a point, a station or the boundary leaves the cells
@@ -272,7 +285,7 @@ export function Editor(props: Props) {
     ? [['details', 'Details'], ['boundary', 'Boundary'], ['stations', 'Stations'], ['layers', 'Places'], ['voronoi', 'Voronoi'], ['publish', 'Publish']]
     : [['details', 'Details'], ['stations', 'Stations'], ['publish', 'Publish']];
 
-  const shared = { ...props, pack, patch, busy, setBusy, setError, setNote, finished, problems, blocking };
+  const shared = { ...props, pack, patch, busy, setBusy, setError, setNote, finished, problems, blocking, latest };
 
   return (
     <div className="pad community editor">
@@ -303,44 +316,93 @@ export function Editor(props: Props) {
       {editor.tab === 'voronoi' && pack && <VoronoiTab {...shared} pack={pack} />}
       {editor.tab === 'publish' && <PublishTab {...shared} />}
 
-      {busy && <p className="small notice">{busy}</p>}
+      {busy && <p className="small notice">{busy.text}</p>}
       {note && <p className="small notice">{note}</p>}
       {error && <p className="warntext">{error}</p>}
     </div>
   );
 }
 
+/** What the studio is working on, and which button started it — that one wears the spinner. */
+type Busy = { text: string; tool?: string; since: number; progress?: number };
+
 type TabProps = Props & {
   pack: PackMap | null;
   patch: (d: Partial<MapFile>, more?: Partial<EditorState>, stale?: boolean) => void;
-  busy: string | null;
-  setBusy: (s: string | null) => void;
+  busy: Busy | null;
+  setBusy: (s: string | null, tool?: string, progress?: number) => void;
   setError: (s: string | null) => void;
   setNote: (s: string | null) => void;
   finished: () => MapFile | null;
   problems: { blocking: boolean; text: string }[];
   blocking: boolean;
+  latest: () => EditorState;
 };
 
-/** Runs a network tool with a visible status, turning a failure into a message rather than a silence. */
-async function runTool(p: TabProps, label: string, work: (onWait: (s: number) => void) => Promise<void>) {
+/**
+ * Runs a network tool with a visible status, turning a failure into a
+ * message rather than a silence. `tool` names the button that started it.
+ */
+async function runTool(p: TabProps, tool: string, label: string, work: (onWait: (s: number) => void) => Promise<void>) {
   p.setError(null);
   p.setNote(null);
-  p.setBusy(`${label}…`);
+  p.setBusy(`${label}…`, tool);
   try {
-    await work((s) => p.setBusy(`${label}… OpenStreetMap is busy, retrying in ${s}s`));
+    await work((s) => p.setBusy(`${label}… OpenStreetMap is busy, retrying in ${s}s`, tool));
   } catch (e) {
     p.setError(e instanceof Error ? e.message : 'That did not work.');
   }
   p.setBusy(null);
 }
 
-function FileButton(props: { label: string; onText: (text: string, name: string) => void; disabled?: boolean }) {
+/** Seconds since `since`, ticking. */
+function Elapsed({ since }: { since: number }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return <span className="elapsed">{Math.max(0, Math.floor((now - since) / 1000))} s</span>;
+}
+
+/**
+ * A button that starts a long tool. While its tool runs it shows a spinner,
+ * what it is doing and either how far along (when the work can count its
+ * steps) or how long it has been waiting (when it can't — an OpenStreetMap
+ * request is one answer, not a stream of them). Every other tool button is
+ * disabled meanwhile, as before.
+ */
+function ToolButton(props: {
+  p: TabProps; tool: string; working: string; className?: string; disabled?: boolean;
+  /** The work reports a fraction done, shown as a percentage, rather than only a clock. */
+  counts?: boolean;
+  onClick: () => void; children: ReactNode;
+}) {
+  const { busy } = props.p;
+  const mine = busy?.tool === props.tool;
+  const pct = mine && busy!.progress !== undefined ? Math.round(busy!.progress * 100) : null;
+  return (
+    // data-reserve sizes the button for its busy face too, so starting it does not reflow the row.
+    <button className={`toolbtn ${props.className ?? ''}`} disabled={!!busy || props.disabled} aria-busy={mine || undefined}
+      data-reserve={`${props.working} ${props.counts ? '100%' : '00 s'}`}
+      onClick={props.onClick} style={pct !== null ? ({ '--progress': `${pct}%` } as CSSProperties) : undefined}>
+      {mine ? (
+        <span className="work">
+          <span className="spinner" aria-hidden="true" />
+          <span>{props.working}</span>
+          {pct !== null ? <span className="elapsed">{pct}%</span> : <Elapsed since={busy!.since} />}
+        </span>
+      ) : <span>{props.children}</span>}
+    </button>
+  );
+}
+
+function FileButton(props: { label: string; onText: (text: string, name: string) => void; disabled?: boolean; className?: string; accept?: string }) {
   const ref = useRef<HTMLInputElement>(null);
   return (
     <>
-      <button disabled={props.disabled} onClick={() => ref.current?.click()}>{props.label}</button>
-      <input ref={ref} type="file" accept=".json,.geojson,application/json,application/geo+json" hidden
+      <button className={props.className} disabled={props.disabled} onClick={() => ref.current?.click()}>{props.label}</button>
+      <input ref={ref} type="file" accept={props.accept ?? '.json,.geojson,application/json,application/geo+json'} hidden
         onChange={async (e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) props.onText(await f.text(), f.name); }} />
     </>
   );
@@ -532,8 +594,8 @@ function BoundaryTab(p: TabProps & { pack: PackMap }) {
       <h3>Find a place</h3>
       <div className="row">
         <input type="text" className="grow" value={query} placeholder="City, borough, island…" onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && query.trim() && runTool(p, 'Searching', async () => setPlaces(await searchPlaces(query)))} />
-        <button disabled={!query.trim() || !!p.busy} onClick={() => runTool(p, 'Searching', async () => setPlaces(await searchPlaces(query)))}>Search</button>
+          onKeyDown={(e) => e.key === 'Enter' && query.trim() && runTool(p, 'search', 'Searching', async () => setPlaces(await searchPlaces(query)))} />
+        <button disabled={!query.trim() || !!p.busy} onClick={() => runTool(p, 'search', 'Searching', async () => setPlaces(await searchPlaces(query)))}>Search</button>
       </div>
       {places && places.length === 0 && <p className="muted small">Nothing with an outline by that name.</p>}
       {places && places.length > 0 && (
@@ -615,6 +677,20 @@ function keepInside(pack: PackMap): MapStation[] {
 
 // -------------------------------------------------------------------- stations
 
+/** The kinds of file "Custom file" takes. Both read through `readMapText`, which tells them apart. */
+const STATION_FILES: { label: string; hint: string; accept: string }[] = [
+  {
+    label: 'JetLeg map file',
+    hint: 'A map downloaded from this studio (.json). Its stations come with their types and routes.',
+    accept: '.json,application/json',
+  },
+  {
+    label: 'GeoJSON points',
+    hint: 'Points from QGIS, geojson.io or a converted GTFS feed (.geojson). The name comes from name, stop_name, station, title or label; types from modes if present, otherwise bus.',
+    accept: '.geojson,.json,application/geo+json,application/json',
+  },
+];
+
 function StationsTab(p: TabProps) {
   const { editor } = p;
   const { draft } = editor;
@@ -692,6 +768,17 @@ function StationsTab(p: TabProps) {
   const update = (change: Partial<MapStation>) =>
     selected && p.patch({ stations: draft.stations.map((s) => (s.id === selected.id ? { ...s, ...change } : s)) });
 
+  const [fileOpen, setFileOpen] = useState(false);
+  const fromFile = (text: string, file: string) => {
+    const parsed = readMapText(text, draft.name || file.replace(/\.[^.]+$/, ''), draft.city || CITY);
+    if (!parsed.ok) { p.setError(parsed.error); return; }
+    replace(parsed.map.stations, 'from the file');
+    setFileOpen(false);
+  };
+  // The station panel sits below the tools now; a tap on the map should bring it into view.
+  const selectedRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { selectedRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [editor.selected?.id]);
+
   const replace = (all: MapStation[], how: string) => {
     // Over the cap, keep the most evenly spread ones rather than refuse.
     const stations = spaceOut(all, MAX_STATIONS);
@@ -729,11 +816,79 @@ function StationsTab(p: TabProps) {
         plays at this size.
       </p>
 
+      <h3>Import stations</h3>
+      <div className="row">
+        {p.pack && (
+          <>
+            <ToolButton p={p} tool="osm-rail" working="Fetching…" className="primary"
+              onClick={() => runTool(p, 'osm-rail', 'Fetching rail, metro, tram and ferry stops', async (w) => {
+                const got = await fetchStations(p.pack!.boundary, false, w);
+                replace(got.stations, 'from OpenStreetMap');
+              })}>
+              OSM: Rail
+            </ToolButton>
+            <ToolButton p={p} tool="osm-bus" working="Fetching…" className="primary"
+              onClick={() => runTool(p, 'osm-bus', 'Fetching every transit stop', async (w) => {
+                const got = await fetchStations(p.pack!.boundary, true, w);
+                replace(got.stations, 'from OpenStreetMap, bus stops included');
+              })}>
+              OSM: Rail + bus
+            </ToolButton>
+          </>
+        )}
+        <button aria-expanded={fileOpen} onClick={() => setFileOpen(!fileOpen)}>Custom file {fileOpen ? '▴' : '▾'}</button>
+      </div>
+      {p.pack && (
+        <p className="muted small">
+          From OpenStreetMap: rail, metro, tram and ferry stops, or those plus every bus stop. Same-named stops within
+          150 m are folded into one. Check the result — OpenStreetMap’s tagging varies by city.
+        </p>
+      )}
+      {fileOpen && (
+        <div className="filetypes">
+          {STATION_FILES.map((f) => (
+            <div key={f.label} className="filetype">
+              <div className="grow">
+                <b>{f.label}</b>
+                <div className="muted small">{f.hint}</div>
+              </div>
+              <FileButton label="Choose file" accept={f.accept} onText={fromFile} />
+            </div>
+          ))}
+          <p className="muted small">Either replaces every station here. Undo brings them back.</p>
+        </div>
+      )}
+
       <div className="boardnow">
         <strong>{count} stations</strong>
         <span className="muted small">{overlaps ? `${overlaps} pair${overlaps === 1 ? '' : 's'} of zones overlap` : 'No zones overlap'}</span>
       </div>
+      {p.problems.map((x) => (
+        <p key={x.text} className={`hint ${x.blocking ? 'warn' : ''} small`}>{x.blocking ? 'Can’t be played: ' : 'Worth a look: '}{x.text}</p>
+      ))}
 
+      <h3>Simplify</h3>
+      <p className="muted small">
+        Overlapping zones put the same ground in two hiding zones at once. Simplify finds the fewest stations to
+        remove so the rest don’t overlap, keeping rail and metro stations over bus stops when it has a choice.
+        Nothing is deleted until you say so.
+      </p>
+      <div className="row">
+        <select value={spacing} onChange={(e) => setSpacing(e.target.value as typeof spacing)} aria-label="How much overlap to allow">
+          <option value="none">No overlap at all — stations at least {2 * radius} m apart</option>
+          <option value="slight">A little overlap — at least {1.5 * radius} m apart</option>
+          <option value="half">Up to half — at least {radius} m apart</option>
+        </select>
+      </div>
+      {ownSelection && (
+        <label className="check small">
+          <input type="checkbox" checked={keepPicked} onChange={(e) => setKeepPicked(e.target.checked)} />
+          <span>Keep the {editor.picked.length} selected stations, whatever they overlap</span>
+        </label>
+      )}
+      <button className="primary" disabled={count < 2} onClick={simplify}>Find stations to remove</button>
+
+      <h3>Select</h3>
       <PickBar {...p} noun="stations" zones
         points={draft.stations.map((s) => ({ id: s.id, at: [s.lon, s.lat] as LngLat }))}
         extra={[{ label: 'Bus-only', ids: draft.stations.filter((s) => s.modes.every((m) => m === 'bus')).map((s) => s.id) }]} />
@@ -770,7 +925,7 @@ function StationsTab(p: TabProps) {
       )}
 
       {selected && !editor.picking && (
-        <div className="hint fact">
+        <div className="hint fact" ref={selectedRef}>
           <div className="row">
             <input type="text" className="grow" value={selected.name} maxLength={80} onChange={(e) => update({ name: e.target.value })} />
             <button className="link danger" onClick={() => p.patch({ stations: draft.stations.filter((s) => s.id !== selected.id) }, { selected: null })}>Remove</button>
@@ -791,58 +946,6 @@ function StationsTab(p: TabProps) {
           {p.pack && <p className="muted small">Anything other than bus-only also puts it in the “Rail stations” layer.</p>}
         </div>
       )}
-
-      {p.problems.map((x) => (
-        <p key={x.text} className={`hint ${x.blocking ? 'warn' : ''} small`}>{x.blocking ? 'Can’t be played: ' : 'Worth a look: '}{x.text}</p>
-      ))}
-
-      <h3>Simplify</h3>
-      <p className="muted small">
-        Overlapping zones put the same ground in two hiding zones at once. Simplify finds the fewest stations to
-        remove so the rest don’t overlap, keeping rail and metro stations over bus stops when it has a choice.
-        Nothing is deleted until you say so.
-      </p>
-      <div className="row">
-        <select value={spacing} onChange={(e) => setSpacing(e.target.value as typeof spacing)} aria-label="How much overlap to allow">
-          <option value="none">No overlap at all — stations at least {2 * radius} m apart</option>
-          <option value="slight">A little overlap — at least {1.5 * radius} m apart</option>
-          <option value="half">Up to half — at least {radius} m apart</option>
-        </select>
-      </div>
-      {ownSelection && (
-        <label className="check small">
-          <input type="checkbox" checked={keepPicked} onChange={(e) => setKeepPicked(e.target.checked)} />
-          <span>Keep the {editor.picked.length} selected stations, whatever they overlap</span>
-        </label>
-      )}
-      <button className="primary" disabled={count < 2} onClick={simplify}>Find stations to remove</button>
-
-      {p.pack && (
-        <>
-          <h3>From OpenStreetMap</h3>
-          <div className="row">
-            <button disabled={!!p.busy} onClick={() => runTool(p, 'Fetching rail, metro, tram and ferry stops', async (w) => {
-              const got = await fetchStations(p.pack!.boundary, false, w);
-              replace(got.stations, 'from OpenStreetMap');
-            })}>Rail, metro, tram and ferry stops</button>
-            <button disabled={!!p.busy} onClick={() => runTool(p, 'Fetching every transit stop', async (w) => {
-              const got = await fetchStations(p.pack!.boundary, true, w);
-              replace(got.stations, 'from OpenStreetMap, bus stops included');
-            })}>…and bus stops</button>
-          </div>
-          <p className="muted small">Same-named stops within 150 m are folded into one. Check the result — OpenStreetMap’s tagging varies by city.</p>
-        </>
-      )}
-
-      <h3>From a file</h3>
-      <div className="row">
-        <FileButton label="Replace stations from a file" onText={(text, file) => {
-          const parsed = readMapText(text, draft.name || file.replace(/\.[^.]+$/, ''), draft.city || CITY);
-          if (!parsed.ok) { p.setError(parsed.error); return; }
-          replace(parsed.map.stations, 'from the file');
-        }} />
-      </div>
-      <p className="muted small">A JetLeg map, or plain GeoJSON points from QGIS, geojson.io or a GTFS export.</p>
     </>
   );
 }
@@ -927,13 +1030,14 @@ function LayersTab(p: TabProps & { pack: PackMap }) {
           What the questions ask about: “is your nearest library the same as mine?” needs the libraries. A
           category with nothing in it is simply not in play on this map.
         </p>
-        <button className="primary" disabled={!!p.busy} onClick={() => runTool(p, 'Fetching every category from OpenStreetMap', async (w) => {
-          const all = await fetchAllPois(pack.boundary, w);
-          const lines = Object.entries(all).map(([key, got]) => { apply(key, got.features, ''); return `${LAYER_DEFS.find((d) => d.key === key)?.label ?? key} ${got.features.length}`; });
-          commit(`Fetched ${lines.length} categories. ${lines.join(' · ')}`);
-        })}>
+        <ToolButton p={p} tool="osm-all" working="Fetching every category…" className="primary"
+          onClick={() => runTool(p, 'osm-all', 'Fetching every category from OpenStreetMap', async (w) => {
+            const all = await fetchAllPois(pack.boundary, w);
+            const lines = Object.entries(all).map(([key, got]) => { apply(key, got.features, ''); return `${LAYER_DEFS.find((d) => d.key === key)?.label ?? key} ${got.features.length}`; });
+            commit(`Fetched ${lines.length} categories. ${lines.join(' · ')}`);
+          })}>
           Fetch every category from OpenStreetMap
-        </button>
+        </ToolButton>
         <p className="muted small">One request to a free, shared service, started when the boundary was set; a large city can take a minute. Review each list afterwards — the file you publish is the ruling.</p>
         <ul className="list layeraudit">
           {audit.map((a) => (
@@ -1001,9 +1105,10 @@ function LayersTab(p: TabProps & { pack: PackMap }) {
 
       <div className="row">
         {fetchable(def.key) && (
-          <button disabled={!!p.busy} onClick={() => runTool(p, `Fetching ${def.label.toLowerCase()}`, async (w) => commit(`${def.label}: ${await fetchOne(def.key, w)}.`))}>
+          <ToolButton p={p} tool={`osm-${def.key}`} working="Fetching…"
+            onClick={() => runTool(p, `osm-${def.key}`, `Fetching ${def.label.toLowerCase()}`, async (w) => commit(`${def.label}: ${await fetchOne(def.key, w)}.`))}>
             Fetch from OpenStreetMap
-          </button>
+          </ToolButton>
         )}
         {def.key === 'coastline' && (
           <button onClick={() => setLayer('coastline', coastlineFromBoundary(pack.boundary), 'Coastline set to the boundary’s own edge — right for an island or a peninsula.')}>
@@ -1038,18 +1143,27 @@ function LayersTab(p: TabProps & { pack: PackMap }) {
 function VoronoiTab(p: TabProps & { pack: PackMap }) {
   const { editor, pack } = p;
 
-  const rebuild = () => {
+  const rebuild = async () => {
     p.setError(null);
-    p.setBusy('Building Voronoi cells…');
-    // Deferred a frame so the status paints before the work blocks the thread.
-    setTimeout(() => {
-      const started = performance.now();
-      const done = finalizePack(pack);
-      p.onChange({ ...editor, draft: done.pack, cellsStale: false });
-      const total = Object.values(done.pack.voronoi).reduce((n, c) => n + c.length, 0);
-      p.setNote(`${total.toLocaleString()} cells across ${Object.keys(done.pack.voronoi).length} categories, in ${((performance.now() - started) / 1000).toFixed(1)} s.${done.notes.length ? ' ' + done.notes.join(' ') : ''}`);
-      p.setBusy(null);
-    }, 30);
+    p.setNote(null);
+    const started = performance.now();
+    // One category at a time, yielding between them, so the button can count.
+    // Weighted by points, which is what a category's cells cost; rail stations
+    // are derived from the stations during the build.
+    const weight = (key: string) => 1 + (key === 'railStations' ? pack.stations.length : pack.layers[key]?.length ?? 0);
+    const totalWeight = VORONOI_KEYS.reduce((n, k) => n + weight(k), 0);
+    let doneWeight = 0;
+    const done = await finalizePackStepwise(pack, (n, total, key) => {
+      p.setBusy(`Building Voronoi cells: ${LAYER_DEFS.find((d) => d.key === key)?.label ?? key} (${n + 1} of ${total})…`, 'voronoi', doneWeight / totalWeight);
+      doneWeight += weight(key);
+    });
+    p.setBusy(null);
+    const now = p.latest();
+    // The map stays usable while this runs; cells built from points since changed would be wrong.
+    if (now.draft !== pack) { p.setNote('The map changed while the cells were being built, so they were not kept. Build again.'); return; }
+    p.onChange({ ...now, draft: done.pack, cellsStale: false });
+    const total = Object.values(done.pack.voronoi).reduce((n, c) => n + c.length, 0);
+    p.setNote(`${total.toLocaleString()} cells across ${Object.keys(done.pack.voronoi).length} categories, in ${((performance.now() - started) / 1000).toFixed(1)} s.${done.notes.length ? ' ' + done.notes.join(' ') : ''}`);
   };
 
   const pointDefs = LAYER_DEFS.filter((d) => (VORONOI_KEYS as readonly string[]).includes(d.key));
@@ -1064,7 +1178,7 @@ function VoronoiTab(p: TabProps & { pack: PackMap }) {
       {editor.cellsStale && (
         <p className="hint warn small">Points, stations or the boundary have changed since these cells were built. They are rebuilt automatically when you publish, play or download — or now:</p>
       )}
-      <button className="primary" disabled={!!p.busy} onClick={rebuild}>Build all cells</button>
+      <ToolButton p={p} tool="voronoi" working="Building cells…" counts className="primary" onClick={rebuild}>Build all cells</ToolButton>
 
       <ul className="list layeraudit">
         {pointDefs.map((d) => {

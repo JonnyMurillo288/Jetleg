@@ -551,6 +551,26 @@ textarea { font: inherit; width: 100%; box-sizing: border-box; padding: 8px 10px
 .community input.code { letter-spacing: .25em; font-weight: 600; }
 .community .row { margin: 8px 0; }
 .community .listhead h3 { margin: 0; }
+.community .makerow button.link { margin-left: auto; }
+
+/* Search: a combobox, its suggestions dropping down over the list below. */
+.searchbox { position: relative; margin: 8px 0; }
+.searchbox input[type="search"] { width: 100%; box-sizing: border-box; min-height: 42px; }
+.searchbox .dropdown {
+  position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px);
+  margin: 0; padding: 4px 0; list-style: none; max-height: 60vh; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / .14);
+}
+.searchbox .dropdown button {
+  display: block; width: 100%; text-align: left; border: 0; border-radius: 0; background: none;
+  padding: 8px 12px; min-height: 40px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.searchbox .dropdown button.hi { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.searchbox .drophead { padding: 6px 12px 2px; font-size: 11.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.searchbox .dropnote { padding: 8px 12px; }
+.searchbox .dropall { color: var(--accent); border-top: 1px solid var(--line) !important; font-size: 13.5px; }
+.searchbox .who { margin-right: 6px; }
 .community .tag { margin-left: 8px; }
 .boardnow { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin: 8px 0; }
 .boardnow > * { display: block; }
@@ -566,6 +586,15 @@ textarea { font: inherit; width: 100%; box-sizing: border-box; padding: 8px 10px
 .comment p { margin: 2px 0 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .comment.reply { margin-left: 18px; padding-left: 10px; border-left: 2px solid var(--line); margin-top: 6px; }
 .comment button.link { padding-left: 0; }
+.comment { display: flex; gap: 10px; align-items: flex-start; }
+.comment .grow { min-width: 0; }
+/* Votes: a narrow column beside each comment, thumb-sized arrows. */
+.comment .votes { display: flex; flex-direction: column; align-items: center; flex: none; width: 34px; }
+.comment .vote { min-height: 28px; width: 34px; padding: 0; border: 0; background: none; color: var(--muted); font-size: 13px; line-height: 1; }
+.comment .vote:disabled { opacity: .35; }
+.comment .vote.up.on { color: var(--accent); }
+.comment .vote.down.on { color: #2563eb; }
+.comment .score { font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; }
 .compose { margin-top: 8px; }
 .compose button { margin-top: 6px; }
 .accountbox { border: 1px dashed var(--line); border-radius: 10px; padding: 10px; margin: 12px 0; }
@@ -869,6 +898,33 @@ button.resume.big { min-height: 44px; }
 .editor .bulk button.some { border-style: dashed; }
 .editor button.danger { color: #fff; background: var(--no); border-color: var(--no); }
 .editor select { min-height: 40px; }
+
+/* ------------------------------------------------------ studio: long tools */
+
+/* The running tool reads as working, not as disabled like the buttons it is holding up. */
+.toolbtn { display: inline-grid; align-items: center; justify-items: center; }
+.toolbtn > span, .toolbtn::after { grid-area: 1 / 1; white-space: nowrap; }
+.toolbtn::after { content: attr(data-reserve); visibility: hidden; height: 0; padding-left: calc(1em + 6px); }
+.toolbtn .work { display: inline-flex; align-items: center; gap: 6px; }
+.toolbtn[aria-busy="true"]:disabled { opacity: 1; cursor: progress; }
+.toolbtn[style*="--progress"] {
+  background-image: linear-gradient(90deg, rgb(255 255 255 / .28) var(--progress), transparent var(--progress));
+  transition: background-image .2s;
+}
+.toolbtn .elapsed { font-variant-numeric: tabular-nums; opacity: .8; font-size: .9em; min-width: 3ch; text-align: right; }
+.spinner {
+  width: 1em; height: 1em; flex: none;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  /* transform runs on the compositor, so it keeps turning while the Voronoi build holds the main thread */
+  animation: spin .75s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
+
+.editor .filetypes { border: 1px solid var(--line); border-radius: 10px; padding: 4px 10px; margin: 8px 0; }
+.editor .filetype { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.editor .filetype + .filetype { border-top: 1px solid var(--line); }
+.editor .filetypes > p { margin: 4px 0 6px; }
 
 /* -------------------------------------------------------------- game chat */
 

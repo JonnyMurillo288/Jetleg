@@ -31,6 +31,13 @@ const click = (p, re, sel = 'button') => p.evaluate(([t, s]) => {
   if (!el) throw new Error(`no enabled ${s} matching ${t}`);
   el.click();
 }, [re, sel]);
+
+/** A way to start a map from the community page; the San Francisco ones sit behind "More". */
+const start = async (p, re) => {
+  await p.evaluate(() => [...document.querySelectorAll('.community button')].find((b) => /^More/.test(b.textContent) && b.getAttribute('aria-expanded') === 'false')?.click());
+  await p.waitForTimeout(50);
+  await click(p, re, '.community button');
+};
 const text = (p, sel) => p.evaluate((s) => document.querySelector(s)?.textContent?.replace(/\s+/g, ' ') ?? '', sel);
 const settle = (p) => p.waitForFunction(() => window.__map.isStyleLoaded() && window.__map.areTilesLoaded(), null, { timeout: 15000 }).catch(() => {}).then(() => p.waitForTimeout(400));
 const rings = (p) => p.evaluate(() => window.__map.queryRenderedFeatures({ layers: ['picked-ring'] }).length);
@@ -66,7 +73,7 @@ const fitBoard = async (p) => {
 
   await p.goto(origin + '#/maps/new');
   await p.waitForFunction(() => window.__mapReady === true, null, { timeout: 45000 });
-  await click(p, '^New stations for San Francisco$', '.community button');
+  await start(p, '^New stations for San Francisco$');
   await p.waitForSelector('.editor');
   await click(p, '^Stations$', '.tabs button');
   await p.waitForSelector('.editor .radiusrow');
@@ -180,7 +187,7 @@ const fitBoard = async (p) => {
   // ----------------------------------------------------- places, on a city map
   await click(p, 'Close draft', '.editor button');
   await p.waitForSelector('.community h2');
-  await click(p, '^Open the San Francisco board$', '.community button');
+  await start(p, '^Open the San Francisco board$');
   await p.waitForSelector('.editor');
   await click(p, '^Places$', '.tabs button');
   await click(p, '^Museums', '.layeraudit button');
@@ -207,7 +214,7 @@ const fitBoard = async (p) => {
 
   // -------------------------------------------- the size, played in the game
   await click(p, 'Close draft', '.editor button');
-  await click(p, '^New stations for San Francisco$', '.community button');
+  await start(p, '^New stations for San Francisco$');
   await click(p, '^Stations$', '.tabs button');
   await click(p, '^800 m$', '.editor .radiusrow button');
   await click(p, '^Details$', '.tabs button');

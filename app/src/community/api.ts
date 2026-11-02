@@ -1,5 +1,6 @@
 import { supabase } from '../sync/client';
 import { parseMapFile, type MapFile } from './format';
+import { nameOrAuthor, searchTerm } from './search';
 
 /**
  * Reads and writes for community maps. Reads go straight to the tables,
@@ -48,6 +49,10 @@ export type Comment = {
   authorName: string;
   body: string;
   createdAt: string;
+  upCount: number;
+  downCount: number;
+  /** Up minus down: what the discussion is ordered by. */
+  score: number;
 };
 
 export type MapDetail = {
@@ -59,6 +64,8 @@ export type MapDetail = {
   comments: Comment[];
   /** This user's own reaction: 1, -1 or 0. */
   myReaction: number;
+  /** This user's own vote on each comment they voted on: 1 or -1. */
+  myVotes: Record<string, number>;
 };
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -97,17 +104,59 @@ const toSummary = (r: MapRow): MapSummary => ({
   updatedAt: r.updated_at,
 });
 
-/** Published maps; with `city`, only the ones filed under that city label. */
-export async function listMaps(sort: Sort, city?: string): Promise<Result<MapSummary[]>> {
+/**
+ * Published maps; with `city`, only the ones filed under that city label;
+ * with `authorId`, only that person's.
+ */
+export async function listMaps(sort: Sort, city?: string, authorId?: string): Promise<Result<MapSummary[]>> {
   if (!supabase) return fail(NOT_CONFIGURED);
   let query = supabase.from('community_maps').select(MAP_COLUMNS);
   if (city) query = query.eq('city', city);
+  if (authorId) query = query.eq('author_id', authorId);
   query = sort === 'top'
     ? query.order('like_count', { ascending: false }).order('updated_at', { ascending: false })
     : query.order('updated_at', { ascending: false });
   const { data, error } = await query.limit(100);
   if (error) return fail(explain(error.message));
   return { ok: true, value: (data as MapRow[]).map(toSummary) };
+}
+
+export type SearchHits = {
+  /** Maps whose name or author matches. */
+  maps: MapSummary[];
+  /** People with published maps whose name matches, best known first. */
+  people: { authorId: string; authorName: string; mapCount: number }[];
+};
+
+/**
+ * Maps whose name or author matches, best liked first, and the people whose
+ * name matches. `limit` is small for the search box's drop-down and larger
+ * for the list under it.
+ */
+export async function searchMaps(q: string, limit = 6): Promise<Result<SearchHits>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const term = searchTerm(q);
+  if (term.length < 2) return { ok: true, value: { maps: [], people: [] } };
+  const [byAny, byAuthor] = await Promise.all([
+    supabase.from('community_maps').select(MAP_COLUMNS).or(nameOrAuthor(term))
+      .order('like_count', { ascending: false }).order('updated_at', { ascending: false }).limit(limit),
+    supabase.from('community_maps').select('author_id, author_name').ilike('author_name', `%${term}%`).limit(200),
+  ]);
+  const broke = byAny.error ?? byAuthor.error;
+  if (broke) return fail(explain(broke.message));
+  const people = new Map<string, { authorId: string; authorName: string; mapCount: number }>();
+  for (const r of (byAuthor.data ?? []) as MapRow[]) {
+    const had = people.get(r.author_id);
+    if (had) had.mapCount++;
+    else people.set(r.author_id, { authorId: r.author_id, authorName: r.author_name, mapCount: 1 });
+  }
+  return {
+    ok: true,
+    value: {
+      maps: ((byAny.data ?? []) as MapRow[]).map(toSummary),
+      people: [...people.values()].sort((a, b) => b.mapCount - a.mapCount).slice(0, 4),
+    },
+  };
 }
 
 export async function getMap(id: string): Promise<Result<MapDetail>> {
@@ -121,16 +170,21 @@ export async function getMap(id: string): Promise<Result<MapDetail>> {
   const { data: session } = await client.auth.getSession();
   const userId = session.session?.user?.id;
 
-  const [versions, branches, comments, parent, reaction] = await Promise.all([
+  const [versions, branches, comments, parent, reaction, votes] = await Promise.all([
     client.from('community_map_versions').select('id, seq, message, station_count, created_at').eq('map_id', id).order('seq', { ascending: false }),
     client.from('community_maps').select(MAP_COLUMNS).eq('parent_map_id', id).order('like_count', { ascending: false }).limit(50),
-    client.from('community_comments').select('id, parent_id, author_id, author_name, body, created_at').eq('map_id', id).order('created_at', { ascending: true }).limit(500),
+    // Best first; among equals, the conversation's own order.
+    client.from('community_comments').select('id, parent_id, author_id, author_name, body, created_at, up_count, down_count, score')
+      .eq('map_id', id).order('score', { ascending: false }).order('created_at', { ascending: true }).limit(500),
     map.parentMapId
       ? client.from('community_maps').select('id, name, author_name').eq('id', map.parentMapId).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
     userId
       ? client.from('community_reactions').select('value').eq('map_id', id).eq('user_id', userId).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
+    userId
+      ? client.from('community_comment_votes').select('comment_id, value').eq('map_id', id).eq('user_id', userId)
+      : Promise.resolve({ data: [] as { comment_id: string; value: number }[], error: null }),
   ]);
   const broke = versions.error ?? branches.error ?? comments.error;
   if (broke) return fail(explain(broke.message));
@@ -142,8 +196,12 @@ export async function getMap(id: string): Promise<Result<MapDetail>> {
       parent: parent.data ? { id: parent.data.id, name: parent.data.name, authorName: parent.data.author_name } : null,
       versions: (versions.data ?? []).map((v) => ({ id: v.id, seq: v.seq, message: v.message, stationCount: v.station_count, createdAt: v.created_at })),
       branches: ((branches.data ?? []) as MapRow[]).map(toSummary),
-      comments: (comments.data ?? []).map((c) => ({ id: c.id, parentId: c.parent_id, authorId: c.author_id, authorName: c.author_name, body: c.body, createdAt: c.created_at })),
+      comments: (comments.data ?? []).map((c) => ({
+        id: c.id, parentId: c.parent_id, authorId: c.author_id, authorName: c.author_name, body: c.body, createdAt: c.created_at,
+        upCount: c.up_count, downCount: c.down_count, score: c.score,
+      })),
       myReaction: reaction.data?.value ?? 0,
+      myVotes: Object.fromEntries((votes.data ?? []).map((v) => [v.comment_id, v.value])),
     },
   };
 }
@@ -215,6 +273,12 @@ export async function deleteMap(mapId: string): Promise<Result<true>> {
 export async function react(mapId: string, value: 1 | -1 | 0): Promise<Result<true>> {
   if (!supabase) return fail(NOT_CONFIGURED);
   const { error } = await supabase.rpc('react_to_map', { map: mapId, new_value: value });
+  return error ? fail(explain(error.message)) : { ok: true, value: true };
+}
+
+export async function voteOnComment(commentId: string, value: 1 | -1 | 0): Promise<Result<true>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { error } = await supabase.rpc('vote_on_comment', { comment: commentId, new_value: value });
   return error ? fail(explain(error.message)) : { ok: true, value: true };
 }
 

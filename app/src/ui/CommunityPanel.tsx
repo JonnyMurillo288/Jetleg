@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { supabase } from '../sync/client';
 import type { Account } from '../community/account';
 import type { ActiveMap } from '../community/active';
@@ -10,13 +10,18 @@ import {
   listMaps,
   postComment,
   react,
+  searchMaps,
+  voteOnComment,
   type Comment,
   type MapDetail,
   type MapSummary,
+  type Result,
+  type SearchHits,
   type Sort,
   type VersionSummary,
 } from '../community/api';
 import { CITY } from '../community/board';
+import { searchTerm } from '../community/search';
 import { describeDiff, diffStations, readMapText, type MapFile } from '../community/format';
 import { downloadMap, type EditorTarget } from '../studio/Editor';
 import { AccountBox } from './AccountBox';
@@ -74,24 +79,37 @@ export function CommunityPanel(props: Props) {
   return <Browse {...props} />;
 }
 
+type View = Sort | 'search';
+type Person = { authorId: string; authorName: string };
+
 function Browse(props: Props) {
   const { active, roundActive } = props;
-  const [sort, setSort] = useState<Sort>('top');
+  const [view, setView] = useState<View>('top');
   const [maps, setMaps] = useState<MapSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [more, setMore] = useState(false);
+  // Search: what has been searched for (Enter), or the person picked from the drop-down.
+  const [searched, setSearched] = useState('');
+  const [person, setPerson] = useState<Person | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
     setMaps(null);
     setError(null);
-    listMaps(sort).then((res) => {
+    const load: Promise<Result<MapSummary[]>> | null =
+      view !== 'search' ? listMaps(view)
+      : person ? listMaps('top', undefined, person.authorId)
+      : searchTerm(searched).length >= 2 ? searchMaps(searched, 50).then((r) => (r.ok ? { ok: true as const, value: r.value.maps } : r))
+      : null;
+    if (!load) { setMaps([]); return; }
+    load.then((res) => {
       if (cancelled) return;
       if (res.ok) setMaps(res.value);
       else setError(res.error);
     });
     return () => { cancelled = true; };
-  }, [sort]);
+  }, [view, searched, person]);
 
   const openFile = async (f: File) => {
     const parsed = readMapText(await f.text(), f.name.replace(/(\.jetleg-map)?\.[^.]+$/, ''), CITY);
@@ -99,13 +117,22 @@ function Browse(props: Props) {
     props.onEdit(parsed.map, { type: 'new' });
   };
 
+  // The create page shows every way to start; the community page leads with
+  // the two most people want and keeps the San Francisco ones a tap away.
+  const sfStarts = (
+    <>
+      <button onClick={() => props.onNew('stations')}>New stations for San Francisco</button>
+      <button onClick={() => props.onNew('sf-pack')}>Open the San Francisco board</button>
+    </>
+  );
+
   return (
     <div className="pad community">
       <h2>{props.create ? 'Create a map' : 'Community maps'}</h2>
       <p className="muted">
         {props.create
           ? 'Build a board from scratch — a new set of stations for San Francisco, or a whole other city — then play on it, save it as a file, or publish it.'
-          : 'Play on a map someone else made, branch it into your own, or build one from scratch — a new set of stations for San Francisco, or a whole other city.'}
+          : 'Play on a map someone else made, branch it into your own, or build one from scratch.'}
       </p>
 
       <div className="boardnow">
@@ -123,18 +150,19 @@ function Browse(props: Props) {
         {roundActive && <span className="muted small">End your round to change boards.</span>}
       </div>
 
-      <h3>Make a map</h3>
-      <div className="row">
+      <div className="row makerow">
         <button className="primary" onClick={() => props.onNew('city')}>New city</button>
-        <button onClick={() => props.onNew('stations')}>New stations for San Francisco</button>
-        <button onClick={() => props.onNew('sf-pack')}>Open the San Francisco board</button>
-        <button onClick={() => fileRef.current?.click()}>Open a map file</button>
+        <button onClick={() => fileRef.current?.click()}>Import map file</button>
+        {props.create ? sfStarts : (
+          <button className="link" aria-expanded={more} onClick={() => setMore(!more)}>More {more ? '▴' : '▾'}</button>
+        )}
         <input ref={fileRef} type="file" accept=".json,.geojson,application/json,application/geo+json" hidden
           onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) openFile(f); }} />
       </div>
+      {more && !props.create && <div className="row">{sfStarts}</div>}
       <p className="muted small">
-        “New city” gives you the tools the San Francisco board was built with: set a boundary, pull
-        stations and places from OpenStreetMap or your own files, and build the Voronoi cells.
+        “New city” sets a boundary, pulls stations and places from OpenStreetMap or your own files, and builds
+        the Voronoi cells. “Import map file” opens a map someone sent you, or GeoJSON points.
       </p>
 
       {props.create ? (
@@ -149,13 +177,36 @@ function Browse(props: Props) {
           <div className="row listhead">
             <h3 className="grow">Published</h3>
             <div className="seg">
-              <button className={sort === 'top' ? 'on' : ''} onClick={() => setSort('top')}>Top</button>
-              <button className={sort === 'new' ? 'on' : ''} onClick={() => setSort('new')}>New</button>
+              {(['top', 'new', 'search'] as View[]).map((v) => (
+                <button key={v} className={view === v ? 'on' : ''} aria-pressed={view === v} onClick={() => setView(v)}>
+                  {v === 'top' ? 'Top' : v === 'new' ? 'New' : 'Search'}
+                </button>
+              ))}
             </div>
           </div>
+          {view === 'search' && (
+            <SearchBox
+              initial={searched}
+              onOpen={props.onOpen}
+              onSearch={(q) => { setPerson(null); setSearched(q); }}
+              onPerson={(p) => { setPerson(p); setSearched(''); }}
+            />
+          )}
+          {view === 'search' && person && (
+            <p className="small">
+              Maps by <b>{person.authorName}</b>{' '}
+              <button className="link" onClick={() => setPerson(null)}>✕ Clear</button>
+            </p>
+          )}
           {error && <p className="warntext">{error}</p>}
           {!maps && !error && <p className="muted small">Loading…</p>}
-          {maps?.length === 0 && <p className="muted">Nothing published yet. Yours could be the first.</p>}
+          {maps?.length === 0 && (
+            <p className="muted">
+              {view !== 'search' ? 'Nothing published yet. Yours could be the first.'
+                : person || searchTerm(searched).length >= 2 ? 'No maps match that.'
+                : 'Type a map’s name or the name of the person who made it.'}
+            </p>
+          )}
           <ul className="list maps">
             {maps?.map((m) => (
               <li key={m.id}>
@@ -175,6 +226,104 @@ function Browse(props: Props) {
           </ul>
           <AccountBox account={props.account} reason="Sign in to publish maps, like them and join the discussion." />
         </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The search box: suggestions drop down as you type — maps (by their name or
+ * their author's) and people. Picking a map opens it; picking a person lists
+ * their maps; Enter lists every match. Arrow keys and Escape work as in any
+ * combobox.
+ */
+function SearchBox(props: {
+  initial: string;
+  onOpen: (id: string) => void;
+  onSearch: (q: string) => void;
+  onPerson: (p: Person) => void;
+}) {
+  const [q, setQ] = useState(props.initial);
+  const [hits, setHits] = useState<SearchHits | null>(null);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [hi, setHi] = useState(-1);
+  const seq = useRef(0);
+
+  // Debounced, and only the newest answer is shown: a slow reply to "pa"
+  // must not replace the one for "park".
+  useEffect(() => {
+    const term = searchTerm(q);
+    if (term.length < 2) { setHits(null); setLoading(false); return; }
+    setLoading(true);
+    const mine = ++seq.current;
+    const t = setTimeout(async () => {
+      const res = await searchMaps(term);
+      if (mine !== seq.current) return;
+      setLoading(false);
+      setHits(res.ok ? res.value : { maps: [], people: [] });
+      setHi(-1);
+    }, 220);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  type Option = { key: string; pick: () => void; body: ReactNode };
+  const options: Option[] = [
+    ...(hits?.maps ?? []).map((m): Option => ({
+      key: `m-${m.id}`,
+      pick: () => props.onOpen(m.id),
+      body: <><b>{m.name}</b><span className="muted small"> by {m.authorName} · {m.kind === 'pack' ? m.city : 'San Francisco'}</span></>,
+    })),
+    ...(hits?.people ?? []).map((p): Option => ({
+      key: `p-${p.authorId}`,
+      pick: () => { props.onPerson(p); setOpen(false); },
+      body: <><span className="who" aria-hidden="true">👤</span><b>{p.authorName}</b><span className="muted small"> · {plural(p.mapCount, 'map')}</span></>,
+    })),
+  ];
+  const nMaps = hits?.maps.length ?? 0;
+  const showing = open && searchTerm(q).length >= 2;
+
+  const onKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setHi((h) => Math.min(options.length - 1, h + 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHi((h) => Math.max(-1, h - 1)); }
+    else if (e.key === 'Escape') setOpen(false);
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (showing && hi >= 0 && options[hi]) options[hi].pick();
+      else { props.onSearch(q); setOpen(false); }
+    }
+  };
+
+  return (
+    <div className="searchbox">
+      <input type="search" value={q} autoFocus placeholder="Search maps or people" aria-label="Search maps or people"
+        role="combobox" aria-expanded={showing} aria-controls="search-options" aria-autocomplete="list"
+        aria-activedescendant={showing && hi >= 0 ? `opt-${options[hi]?.key}` : undefined}
+        onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        // Late enough for a tap on an option to land first.
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onKeyDown={onKey} />
+      {showing && (
+        <ul className="dropdown" id="search-options" role="listbox">
+          {loading && !hits && <li className="muted small dropnote">Searching…</li>}
+          {hits && options.length === 0 && <li className="muted small dropnote">No maps or people match “{searchTerm(q)}”.</li>}
+          {options.map((o, i) => (
+            <li key={o.key}>
+              {i === 0 && nMaps > 0 && <div className="drophead">Maps</div>}
+              {i === nMaps && <div className="drophead">People</div>}
+              <button id={`opt-${o.key}`} role="option" aria-selected={i === hi} className={i === hi ? 'hi' : ''}
+                onMouseDown={(e) => e.preventDefault()} onMouseEnter={() => setHi(i)} onClick={o.pick}>
+                {o.body}
+              </button>
+            </li>
+          ))}
+          {hits && nMaps > 0 && (
+            <li><button className="dropall" onMouseDown={(e) => e.preventDefault()} onClick={() => { props.onSearch(q); setOpen(false); }}>
+              See every match for “{searchTerm(q)}”
+            </button></li>
+          )}
+        </ul>
       )}
     </div>
   );
@@ -366,19 +515,30 @@ function MapPage(props: {
         </ul>
       )}
 
-      <Thread mapId={map.id} comments={detail.comments} account={account} signedIn={signedIn} onChanged={load} />
+      <Thread mapId={map.id} comments={detail.comments} myVotes={detail.myVotes} account={account} signedIn={signedIn} onChanged={load} />
     </div>
   );
 }
 
-function Thread(props: { mapId: string; comments: Comment[]; account: Account; signedIn: boolean; onChanged: () => Promise<void> }) {
+function Thread(props: {
+  mapId: string; comments: Comment[]; myVotes: Record<string, number>; account: Account; signedIn: boolean; onChanged: () => Promise<void>;
+}) {
   const { comments, account, signedIn } = props;
   const [body, setBody] = useState('');
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [replyBody, setReplyBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A vote shows at once; this holds it until the reload that confirms it.
+  const [pending, setPending] = useState<Record<string, number>>({});
   const myId = account.state === 'signedIn' ? account.userId : null;
+
+  // Comments arrive best first. That order is taken when the set of comments
+  // changes, not when a score does, so a comment does not slide out from
+  // under the finger that just voted on it. The next visit sees the new order.
+  const idKey = comments.map((c) => c.id).sort().join();
+  const order = useMemo(() => new Map(comments.map((c, i) => [c.id, i])), [idKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const byOrder = (a: Comment, b: Comment) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0);
 
   const post = async (text: string, parentId?: string) => {
     if (!text.trim()) return;
@@ -398,25 +558,53 @@ function Thread(props: { mapId: string; comments: Comment[]; account: Account; s
     await props.onChanged();
   };
 
-  const roots = comments.filter((c) => !c.parentId);
-  const repliesTo = (id: string) => comments.filter((c) => c.parentId === id);
+  const myVote = (c: Comment) => pending[c.id] ?? props.myVotes[c.id] ?? 0;
+  const vote = async (c: Comment, value: 1 | -1) => {
+    const next = myVote(c) === value ? 0 : value;
+    setError(null);
+    setPending((p) => ({ ...p, [c.id]: next }));
+    const res = await voteOnComment(c.id, next);
+    if (!res.ok) setError(res.error);
+    await props.onChanged();
+    setPending((p) => { const { [c.id]: _done, ...rest } = p; return rest; });
+  };
 
-  const one = (c: Comment, isReply: boolean) => (
-    <div key={c.id} className={`comment ${isReply ? 'reply' : ''}`}>
-      <div className="small">
-        <b>{c.authorName}</b> <span className="muted">· {when(c.createdAt)}</span>
+  const roots = comments.filter((c) => !c.parentId).sort(byOrder);
+  const repliesTo = (id: string) => comments.filter((c) => c.parentId === id).sort(byOrder);
+
+  const one = (c: Comment, isReply: boolean) => {
+    const mine = myId === c.authorId;
+    const v = myVote(c);
+    // The server's score already counts my saved vote; swap it for the pending one.
+    const score = c.score - (props.myVotes[c.id] ?? 0) + v;
+    const why = !signedIn ? 'Sign in to vote' : mine ? 'You can’t vote on your own comment' : undefined;
+    return (
+      <div key={c.id} className={`comment ${isReply ? 'reply' : ''}`}>
+        <div className="votes" title={why}>
+          <button className={`vote up ${v === 1 ? 'on' : ''}`} disabled={!signedIn || mine} aria-pressed={v === 1}
+            aria-label={`Vote up${v === 1 ? ' (voted)' : ''}`} onClick={() => vote(c, 1)}>▲</button>
+          <span className="score" aria-label={`Score ${score}`}>{score}</span>
+          <button className={`vote down ${v === -1 ? 'on' : ''}`} disabled={!signedIn || mine} aria-pressed={v === -1}
+            aria-label={`Vote down${v === -1 ? ' (voted)' : ''}`} onClick={() => vote(c, -1)}>▼</button>
+        </div>
+        <div className="grow">
+          <div className="small">
+            <b>{c.authorName}</b> <span className="muted">· {when(c.createdAt)}</span>
+          </div>
+          <p>{c.body}</p>
+          <div className="small">
+            {signedIn && !isReply && <button className="link" onClick={() => { setReplyTo(c.id); setReplyBody(''); }}>Reply</button>}
+            {mine && <button className="link danger" onClick={() => remove(c)}>Delete</button>}
+          </div>
+        </div>
       </div>
-      <p>{c.body}</p>
-      <div className="small">
-        {signedIn && !isReply && <button className="link" onClick={() => { setReplyTo(c.id); setReplyBody(''); }}>Reply</button>}
-        {myId === c.authorId && <button className="link danger" onClick={() => remove(c)}>Delete</button>}
-      </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <>
       <h3>Discussion <span className="muted">· {comments.length}</span></h3>
+      {roots.length > 1 && <p className="muted small">Most up-voted first.</p>}
       {roots.length === 0 && <p className="muted small">No comments yet. What do you like or dislike about this map?</p>}
       {roots.map((c) => (
         <div key={c.id} className="threaditem">
@@ -439,7 +627,7 @@ function Thread(props: { mapId: string; comments: Comment[]; account: Account; s
         </div>
       ) : null}
       {error && <p className="warntext">{error}</p>}
-      <AccountBox account={account} reason="Sign in to like, dislike or comment." />
+      <AccountBox account={account} reason="Sign in to like, dislike, vote or comment." />
     </>
   );
 }

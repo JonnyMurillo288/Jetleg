@@ -17,6 +17,13 @@ const click = (p, re, sel = 'button') => p.evaluate(([t, s]) => {
   if (!el) throw new Error(`no enabled ${s} matching ${t}`);
   el.click();
 }, [re, sel]);
+
+/** A way to start a map from the community page; the San Francisco ones sit behind "More". */
+const start = async (p, re) => {
+  await p.evaluate(() => [...document.querySelectorAll('.community button')].find((b) => /^More/.test(b.textContent) && b.getAttribute('aria-expanded') === 'false')?.click());
+  await p.waitForTimeout(50);
+  await click(p, re, '.community button');
+};
 /** Tick or untick the panel's row whose label starts with `label`. */
 const tick = (p, panel, label) => p.evaluate(([panel, label]) => {
   const row = [...document.querySelectorAll(`${panel} .maplayers-panel label`)].find((l) => l.querySelector('span')?.firstChild?.textContent?.trim() === label);
@@ -46,7 +53,7 @@ const drew = (p) => p.evaluate(() => {
   // ------------------------------------------------------------ the studio
   await p.goto(origin + '#/maps/new');
   await p.waitForFunction(() => window.__mapReady === true, null, { timeout: 45000 });
-  await click(p, '^New stations for San Francisco$', '.community button');
+  await start(p, '^New stations for San Francisco$');
   await p.waitForSelector('.editor');
   await settle(p);
   let d = await drew(p);
@@ -93,7 +100,7 @@ const drew = (p) => p.evaluate(() => {
   // The category being edited stays on, whatever the switch says.
   await click(p, '^None$', '.studio-layers .maplayers-section button');
   await click(p, 'Close draft', '.editor button');
-  await click(p, '^Open the San Francisco board$', '.community button');
+  await start(p, '^Open the San Francisco board$');
   await click(p, '^Places$', '.tabs button');
   await click(p, '^Museums', '.layeraudit button');
   await settle(p);

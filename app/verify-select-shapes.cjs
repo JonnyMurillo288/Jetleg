@@ -47,6 +47,13 @@ const click = (p, re, sel = 'button') => p.evaluate(([t, s]) => {
   if (!el) throw new Error(`no enabled ${s} matching ${t}`);
   el.click();
 }, [re, sel]);
+
+/** A way to start a map from the community page; the San Francisco ones sit behind "More". */
+const start = async (p, re) => {
+  await p.evaluate(() => [...document.querySelectorAll('.community button')].find((b) => /^More/.test(b.textContent) && b.getAttribute('aria-expanded') === 'false')?.click());
+  await p.waitForTimeout(50);
+  await click(p, re, '.community button');
+};
 const selected = async (p) => Number((await p.textContent('.pickbar')).match(/(\d+) selected/)?.[1]);
 const centre = (p) => p.evaluate(() => { const c = window.__map.getCenter(); return [+c.lng.toFixed(6), +c.lat.toFixed(6)]; });
 /** Screen points (page pixels) to map coordinates, the way the app reads them. */
@@ -60,7 +67,7 @@ const mapBox = (p) => p.evaluate(() => { const r = window.__map.getCanvas().getB
 async function openStations(p) {
   await p.goto(origin + '#/maps/new');
   await p.waitForFunction(() => window.__mapReady === true, null, { timeout: 45000 });
-  await click(p, '^New stations for San Francisco$', '.community button');
+  await start(p, '^New stations for San Francisco$');
   await click(p, '^Stations$', '.tabs button');
   await p.waitForSelector('.pickbar');
   await click(p, '^Select$', '.pickbar button');
@@ -171,7 +178,7 @@ async function touchDrag(cdp, path) {
     // Places, on a full city map: museums, by rectangle.
     await click(p, 'Close draft', '.editor button');
     await p.waitForSelector('.community h2');
-    await click(p, '^Open the San Francisco board$', '.community button');
+    await start(p, '^Open the San Francisco board$');
     await click(p, '^Places$', '.tabs button');
     await click(p, '^Museums', '.layeraudit button');
     await click(p, '^Select$', '.pickbar button');

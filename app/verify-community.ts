@@ -15,6 +15,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { readFileSync } from 'node:fs';
 import { mapFromBoard, parseMapFile, serializeMap, type MapFile } from './src/community/format';
 import { finalizePack, newPack } from './src/community/pack';
+import { nameOrAuthor, searchTerm } from './src/community/search';
 import type { Station } from './src/engine/types';
 
 const url = process.env.SUPABASE_URL || 'http://127.0.0.1:54321';
@@ -217,6 +218,46 @@ const sydney = sydneyPack();
   check('a map’s author cannot delete someone else’s comment', (censor.data?.length ?? 0) === 0);
   const retract = await bob.client.from('community_comments').delete().eq('id', forged.data ? (await bob.client.from('community_comments').select('id').eq('body', 'I hate my own map').single()).data!.id : '').select('id');
   check('a commenter can delete their own', retract.data?.length === 1);
+
+  // ---- votes on comments (0014): the thread is ordered by them
+  const saidId = said.data!.id;
+  const tally = async () => (await nobody.from('community_comments').select('up_count, down_count, score').eq('id', saidId).single()).data;
+  check('an anonymous device cannot vote on a comment', !!(await guest.rpc('vote_on_comment', { comment: saidId, new_value: 1 })).error);
+  const selfVote = await bob.client.rpc('vote_on_comment', { comment: saidId, new_value: 1 });
+  check('nobody can vote on their own comment', !!selfVote.error && /own comment/.test(selfVote.error.message), selfVote.error?.message);
+  await alice.client.rpc('vote_on_comment', { comment: saidId, new_value: 1 });
+  await alice.client.rpc('vote_on_comment', { comment: saidId, new_value: 1 }); // twice is still once
+  check('an up-vote counts once, however often it is tapped', JSON.stringify(await tally()) === JSON.stringify({ up_count: 1, down_count: 0, score: 1 }), await tally());
+  await alice.client.rpc('vote_on_comment', { comment: saidId, new_value: -1 });
+  check('turning it into a down-vote moves it, not adds it', JSON.stringify(await tally()) === JSON.stringify({ up_count: 0, down_count: 1, score: -1 }), await tally());
+  await alice.client.rpc('vote_on_comment', { comment: saidId, new_value: 0 });
+  check('taking it back removes it', (await tally())?.score === 0, await tally());
+  const voters = await Promise.all(['Ivy', 'Jo', 'Kit', 'Lu', 'Mo'].map(member));
+  await Promise.all(voters.map((m) => m.client.rpc('vote_on_comment', { comment: saidId, new_value: 1 })));
+  check('five people voting at the same moment is five votes', (await tally())?.up_count === 5, await tally());
+  await alice.client.rpc('vote_on_comment', { comment: saidId, new_value: 1 });
+  await bob.client.rpc('vote_on_comment', { comment: reply.data!.id, new_value: -1 });
+  const ranked = await nobody.from('community_comments').select('id, score').eq('map_id', mapId).order('score', { ascending: false }).order('created_at', { ascending: true });
+  check('the thread comes back best first', ranked.data?.[0]?.id === saidId && ranked.data.at(-1)?.id === reply.data!.id, ranked.data?.map((c) => c.score));
+  const peekVotes = await bob.client.from('community_comment_votes').select('user_id').eq('map_id', mapId);
+  check('who voted on a comment is not readable by others', !peekVotes.error && peekVotes.data?.length === 1 && peekVotes.data[0].user_id === bob.id, peekVotes.data);
+  const myVotes = await alice.client.from('community_comment_votes').select('comment_id, value').eq('map_id', mapId).eq('user_id', alice.id);
+  check('...but a voter reads their own, by map', myVotes.data?.length === 1 && myVotes.data[0].comment_id === saidId && myVotes.data[0].value === 1, myVotes.data);
+  const stuffedVote = await bob.client.from('community_comment_votes').insert({ comment_id: saidId, map_id: mapId, user_id: alice.id, value: -1 });
+  check('a vote cannot be inserted directly, or on someone else’s behalf', !!stuffedVote.error);
+  const inflated = await bob.client.from('community_comments').update({ up_count: 999 }).eq('id', saidId).select('id');
+  check('a comment’s totals cannot be written by a client', (inflated.data?.length ?? 0) === 0 && (await tally())?.up_count === 6, await tally());
+  await Promise.all(voters.map((m) => admin.auth.admin.deleteUser(m.id)));
+  check('deleting voters’ accounts takes their votes with them', (await tally())?.up_count === 1, await tally());
+
+  // ---- search: the `or` filter the app sends, with a term that tries to break out of it
+  const hostile = searchTerm(`Downtown",author_id.eq.${alice.id}),(name.ilike.*`);
+  const found = await nobody.from('community_maps').select('id').or(nameOrAuthor(hostile));
+  check('a search term cannot change the query', !found.error && (found.data?.length ?? 0) === 0, found.error?.message ?? found.data?.length);
+  const byName = await nobody.from('community_maps').select('id').or(nameOrAuthor(searchTerm(`no cable cars ${run}`)));
+  const byAuthor = await nobody.from('community_maps').select('id, author_name').or(nameOrAuthor(searchTerm('bob'))).eq('id', branched.data);
+  check('search finds a map by part of its name, and by its author, ignoring case',
+    byName.data?.length === 1 && byName.data[0].id === branched.data && byAuthor.data?.length === 1, { byName: byName.error?.message ?? byName.data?.length, byAuthor: byAuthor.error?.message ?? byAuthor.data?.length });
 
   // ---- the real sign-in: anonymous device -> emailed code -> same user, now allowed
   const email = `walkin-${run}@example.com`;

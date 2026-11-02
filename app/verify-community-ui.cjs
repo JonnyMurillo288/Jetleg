@@ -33,6 +33,13 @@ const clickText = (p, text, sel = 'button') => p.evaluate(([t, s]) => {
   if (!el) throw new Error('no enabled element matching ' + t + ' in ' + s);
   el.click();
 }, [text, sel]);
+
+/** A way to start a map from the community page; the San Francisco ones sit behind "More". */
+const start = async (p, re) => {
+  await p.evaluate(() => [...document.querySelectorAll('.community button')].find((b) => /^More/.test(b.textContent) && b.getAttribute('aria-expanded') === 'false')?.click());
+  await p.waitForTimeout(50);
+  await clickText(p, re, '.community button');
+};
 const tab = (p, name) => clickText(p, `^${name}$`, '.tabs button');
 const hasText = (p, sel, re, timeout = 15000) =>
   p.waitForFunction(([s, r]) => new RegExp(r).test(document.querySelector(s)?.textContent || ''), [sel, re.source], { timeout }).then(() => true, () => false);
@@ -172,7 +179,7 @@ const lookAt = async (p, ll, zoom) => { await p.evaluate(([c, z]) => window.__ma
   check('signing in with an emailed code works here', true);
 
   // ================================================== a station map for SF
-  await clickText(ana.p, 'New stations for San Francisco');
+  await start(ana.p, 'New stations for San Francisco');
   await ana.p.waitForSelector('.community.editor');
   await ana.p.fill('.editor .field input', stationMap);
   await tab(ana.p, 'Stations');
@@ -241,7 +248,7 @@ const lookAt = async (p, ll, zoom) => { await p.evaluate(([c, z]) => window.__ma
 
   // -- stations from OpenStreetMap
   await tab(ana.p, 'Stations');
-  await clickText(ana.p, 'Rail, metro, tram and ferry stops');
+  await clickText(ana.p, '^OSM: Rail$');
   await ana.p.waitForFunction(() => window.__map.getSource('stations').serialize().data.features.length === 3, null, { timeout: 15000 }).catch(() => {});
   await settle(ana.p, 800);
   now = await board(ana.p);
@@ -374,6 +381,36 @@ const lookAt = async (p, ll, zoom) => { await p.evaluate(([c, z]) => window.__ma
   await clickText(ben.p, '^Comment$');
   check('...and their comment appears under their name', await hasText(ben.p, '.threaditem', /Ben/));
 
+  // -- comment votes: ana answers, ben votes her comment up
+  const openMap = async (who, name) => {
+    await who.p.evaluate(() => [...document.querySelectorAll('.community button')].find(b => /All maps/.test(b.textContent))?.click());
+    await who.p.waitForSelector('.boardnow', { timeout: 15000 });
+    await clickText(who.p, '^New$', '.community .seg button');
+    await who.p.waitForFunction((n) => [...document.querySelectorAll('.list.maps b')].some(b => b.textContent === n), name, { timeout: 15000 });
+    await clickText(who.p, `^${name}`, '.list.maps button');
+    await who.p.waitForSelector('.reactions');
+  };
+  const thread = (who) => who.p.evaluate(() => [...document.querySelectorAll('.threaditem > .comment')].map(c => ({
+    who: c.querySelector('b')?.textContent, score: c.querySelector('.score')?.textContent,
+    up: c.querySelector('.vote.up')?.disabled ? 'off' : c.querySelector('.vote.up')?.getAttribute('aria-pressed'),
+  })));
+  await openMap(ana, cityMap);
+  await ana.p.fill('.compose textarea', 'Thanks for playing it!');
+  await clickText(ana.p, '^Comment$');
+  await hasText(ana.p, '.community', /Discussion · 2/);
+  await openMap(ben, cityMap);
+  let t = await thread(ben);
+  check('the discussion shows a score beside each comment, ties oldest first', t.length === 2 && t[0].who === 'Ben' && t.every(c => c.score === '0'), JSON.stringify(t));
+  check('...and nobody can vote on their own', t[0].up === 'off' && t[1].up === 'false', JSON.stringify(t));
+  await ben.p.evaluate(() => [...document.querySelectorAll('.threaditem > .comment')][1].querySelector('.vote.up').click());
+  await ben.p.waitForFunction(() => document.querySelectorAll('.threaditem > .comment .score')[1]?.textContent === '1', null, { timeout: 8000 }).catch(() => {});
+  t = await thread(ben);
+  check('voting a comment up counts it at once, and the thread does not jump under the finger', t[0].who === 'Ben' && t[1].who === 'Ana' && t[1].score === '1' && t[1].up === 'true', JSON.stringify(t));
+  await ben.p.waitForTimeout(800);
+  await openMap(ben, cityMap);
+  t = await thread(ben);
+  check('opened again, the most up-voted comment leads', t[0].who === 'Ana' && t[0].score === '1' && t[0].up === 'true', JSON.stringify(t));
+
   await clickText(ben.p, 'Branch it');
   await ben.p.waitForSelector('.community.editor');
   check('a branch of a city map opens in the full editor', await ben.p.evaluate(() => ['Boundary', 'Places', 'Voronoi'].every(t => [...document.querySelectorAll('.tabs button')].some(b => b.textContent === t))));
@@ -389,6 +426,30 @@ const lookAt = async (p, ll, zoom) => { await p.evaluate(([c, z]) => window.__ma
   await clickText(ben.p, 'Back to the built-in board');
   await ben.p.waitForFunction(() => window.__map.getSource('stations').serialize().data.features.length === 192, null, { timeout: 15000 }).catch(() => {});
   check('going back to the built-in board restores it', (await board(ben.p)).stations === 192);
+
+  // -- search: suggestions as you type, maps and people
+  const suggestions = () => ben.p.evaluate(() => [...document.querySelectorAll('.searchbox .dropdown li')].map(l => l.textContent));
+  await clickText(ben.p, '^Search$', '.community .seg button');
+  await ben.p.waitForSelector('.searchbox input');
+  await ben.p.type('.searchbox input', `ville branched ${run}`.toLowerCase(), { delay: 20 });
+  await ben.p.waitForFunction((r) => [...document.querySelectorAll('.searchbox .dropdown button')].some(b => b.textContent.includes(r)), String(run), { timeout: 10000 }).catch(() => {});
+  let sug = await suggestions();
+  check('typing part of a map’s name drops down suggestions as you type', sug.some(x => /^Maps/.test(x) && x.includes(`Testville branched ${run}`) && /by Ben/.test(x)), JSON.stringify(sug));
+  await ben.p.fill('.searchbox input', 'Ben');
+  await ben.p.waitForFunction(() => [...document.querySelectorAll('.searchbox .drophead')].some(h => h.textContent === 'People'), null, { timeout: 10000 }).catch(() => {});
+  sug = await suggestions();
+  check('...and people, by name', sug.some(x => /^People/.test(x) && /Ben/.test(x) && /map/.test(x)), JSON.stringify(sug));
+  await ben.p.evaluate(() => [...document.querySelectorAll('.searchbox .dropdown button')].find(b => /👤/.test(b.textContent)).click());
+  await hasText(ben.p, '.community', /Maps by Ben/);
+  await ben.p.waitForFunction(() => document.querySelectorAll('.list.maps li').length > 0, null, { timeout: 10000 }).catch(() => {});
+  const byBen = await ben.p.evaluate(() => [...document.querySelectorAll('.list.maps li')].map(l => l.textContent));
+  check('picking a person lists their maps, only theirs', byBen.length > 0 && byBen.every(x => /by Ben/.test(x)), JSON.stringify(byBen));
+  await ben.p.fill('.searchbox input', `Testville ${run}`);
+  await ben.p.waitForFunction((n) => [...document.querySelectorAll('.searchbox .dropdown button')].some(b => b.textContent.startsWith(n)), cityMap, { timeout: 10000 }).catch(() => {});
+  await ben.p.press('.searchbox input', 'ArrowDown');
+  await ben.p.press('.searchbox input', 'Enter');
+  await ben.p.waitForSelector('.reactions', { timeout: 10000 }).catch(() => {});
+  check('arrow down and Enter opens the highlighted map', (await ben.p.textContent('.community h2').catch(() => '')) === cityMap);
 
   // ================================================== tidy up
   const remove = async (who, name) => {
