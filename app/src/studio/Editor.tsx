@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MultiPolygon, Polygon } from 'geojson';
 import type { GameData } from '../data/load';
 import { LAYER_DEFS, VORONOI_KEYS } from '../data/layers';
@@ -46,7 +46,6 @@ import {
   clipToBoundary,
   coastlineFromBoundary,
   finalizePack,
-  finalizePackStepwise,
   largestLandmass,
   packFromBoard,
   polygonFromTaps,
@@ -221,15 +220,7 @@ export function Editor(props: Props) {
   const { editor, onChange, base } = props;
   const { draft } = editor;
   const pack = draft.kind === 'pack' ? draft : null;
-  const [busy, setBusyState] = useState<Busy | null>(null);
-  const setBusy = (text: string | null, tool?: string, progress?: number) =>
-    setBusyState((was) => (text === null ? null : {
-      text,
-      tool,
-      progress,
-      // A retry or a step of the same tool keeps its clock running.
-      since: was && was.tool === tool ? was.since : Date.now(),
-    }));
+  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -312,21 +303,18 @@ export function Editor(props: Props) {
       {editor.tab === 'voronoi' && pack && <VoronoiTab {...shared} pack={pack} />}
       {editor.tab === 'publish' && <PublishTab {...shared} />}
 
-      {busy && <p className="small notice">{busy.text}</p>}
+      {busy && <p className="small notice">{busy}</p>}
       {note && <p className="small notice">{note}</p>}
       {error && <p className="warntext">{error}</p>}
     </div>
   );
 }
 
-/** What the studio is working on, and which button started it — that one wears the spinner. */
-type Busy = { text: string; tool?: string; since: number; progress?: number };
-
 type TabProps = Props & {
   pack: PackMap | null;
   patch: (d: Partial<MapFile>, more?: Partial<EditorState>, stale?: boolean) => void;
-  busy: Busy | null;
-  setBusy: (s: string | null, tool?: string, progress?: number) => void;
+  busy: string | null;
+  setBusy: (s: string | null) => void;
   setError: (s: string | null) => void;
   setNote: (s: string | null) => void;
   finished: () => MapFile | null;
@@ -334,58 +322,17 @@ type TabProps = Props & {
   blocking: boolean;
 };
 
-/**
- * Runs a network tool with a visible status, turning a failure into a
- * message rather than a silence. `tool` names the button that started it.
- */
-async function runTool(p: TabProps, tool: string, label: string, work: (onWait: (s: number) => void) => Promise<void>) {
+/** Runs a network tool with a visible status, turning a failure into a message rather than a silence. */
+async function runTool(p: TabProps, label: string, work: (onWait: (s: number) => void) => Promise<void>) {
   p.setError(null);
   p.setNote(null);
-  p.setBusy(`${label}…`, tool);
+  p.setBusy(`${label}…`);
   try {
-    await work((s) => p.setBusy(`${label}… OpenStreetMap is busy, retrying in ${s}s`, tool));
+    await work((s) => p.setBusy(`${label}… OpenStreetMap is busy, retrying in ${s}s`));
   } catch (e) {
     p.setError(e instanceof Error ? e.message : 'That did not work.');
   }
   p.setBusy(null);
-}
-
-/** Seconds since `since`, ticking. */
-function Elapsed({ since }: { since: number }) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-  return <span className="elapsed">{Math.max(0, Math.floor((now - since) / 1000))} s</span>;
-}
-
-/**
- * A button that starts a long tool. While its tool runs it shows a spinner,
- * what it is doing and either how far along (when the work can count its
- * steps) or how long it has been waiting (when it can't — an OpenStreetMap
- * request is one answer, not a stream of them). Every other tool button is
- * disabled meanwhile, as before.
- */
-function ToolButton(props: {
-  p: TabProps; tool: string; working: string; className?: string; disabled?: boolean;
-  onClick: () => void; children: ReactNode;
-}) {
-  const { busy } = props.p;
-  const mine = busy?.tool === props.tool;
-  const pct = mine && busy!.progress !== undefined ? Math.round(busy!.progress * 100) : null;
-  return (
-    <button className={`toolbtn ${props.className ?? ''}`} disabled={!!busy || props.disabled} aria-busy={mine || undefined}
-      onClick={props.onClick} style={pct !== null ? ({ '--progress': `${pct}%` } as CSSProperties) : undefined}>
-      {mine ? (
-        <>
-          <span className="spinner" aria-hidden="true" />
-          <span>{props.working}</span>
-          {pct !== null ? <span className="elapsed">{pct}%</span> : <Elapsed since={busy!.since} />}
-        </>
-      ) : props.children}
-    </button>
-  );
 }
 
 function FileButton(props: { label: string; onText: (text: string, name: string) => void; disabled?: boolean }) {
@@ -585,8 +532,8 @@ function BoundaryTab(p: TabProps & { pack: PackMap }) {
       <h3>Find a place</h3>
       <div className="row">
         <input type="text" className="grow" value={query} placeholder="City, borough, island…" onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && query.trim() && runTool(p, 'search', 'Searching', async () => setPlaces(await searchPlaces(query)))} />
-        <button disabled={!query.trim() || !!p.busy} onClick={() => runTool(p, 'search', 'Searching', async () => setPlaces(await searchPlaces(query)))}>Search</button>
+          onKeyDown={(e) => e.key === 'Enter' && query.trim() && runTool(p, 'Searching', async () => setPlaces(await searchPlaces(query)))} />
+        <button disabled={!query.trim() || !!p.busy} onClick={() => runTool(p, 'Searching', async () => setPlaces(await searchPlaces(query)))}>Search</button>
       </div>
       {places && places.length === 0 && <p className="muted small">Nothing with an outline by that name.</p>}
       {places && places.length > 0 && (
