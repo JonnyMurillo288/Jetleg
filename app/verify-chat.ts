@@ -41,8 +41,13 @@ const check = (name: string, ok: boolean, detail?: unknown) => {
 };
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** The local database, asked directly. Null where there is no local stack to ask. */
+/**
+ * The local database, asked directly. Null anywhere else: pointed at a cloud
+ * project, `docker exec` would still reach the *local* stack and report on
+ * the wrong database.
+ */
 function sql(query: string): string | null {
+  if (!/^https?:\/\/(127\.0\.0\.1|localhost)[:/]/.test(url)) return null;
   try {
     return execFileSync('docker', ['exec', 'supabase_db_JetLeg', 'psql', '-U', 'postgres', '-tAc', query], { encoding: 'utf8' }).trim();
   } catch {
