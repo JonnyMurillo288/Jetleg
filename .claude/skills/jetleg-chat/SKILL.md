@@ -32,8 +32,9 @@ in the `jetleg` skill. Read that too.
 | `app/src/chat/chat.ts` | The pure half: event names, types, `parseQuestion`/`parseMessage`/`parseLog` (everything from another phone is checked), `mergeQuestion` (first answer wins, same on every phone), `hello`/`missingFor` (catch-up), photo pieces, `stripMetadata`/`hasExif`, labels, clock, unread. |
 | `app/src/chat/useGameChat.ts` | Loads the phone's copy, saves every change, the channel, catch-up, sending (`ask`, `answer`, `answerPhoto`, `say`). |
 | `app/src/chat/local.ts` | IndexedDB: `chat/log/<game>` and `chat/photo/<game>/<question>`; `forgetUnusedChats`; `withChats`/`restoreChats` for the game file. |
+| `app/src/chat/subject.ts` | `subjectFor`: the seeker's own nearest one for a matching/measuring question — the name (and for measuring, the distance) sent with it. |
 | `app/src/chat/photo.ts` | `preparePhoto`: canvas re-encode (1280 px, stepping quality down to ~250 KB), byte-level metadata strip, then a check. |
-| `app/src/ui/ChatPanel.tsx` | Questions / Chat segments, `AskComposer`, `ChatQuestionCard`, `AnswerBox`. |
+| `app/src/ui/ChatPanel.tsx` | Questions / Chat segments, `AskComposer`, `ChatQuestionCard`, `SubjectLine`, `AnswerBox`, and `Chat` — the messaging layout (bubbles, runs, day lines, pinned composer, "Sending…"/"Not sent · retry"). |
 | `app/src/ui/ChatPhotos.tsx` | `PhotoThumb`, `Lightbox` (object URLs of the phone's copy), `Countdown` (its own 1 s timer). |
 | `app/src/ui/SeekerPanel.tsx` | `PhotoDrawer` (the drop-down under Photo); passes `onAskInChat` to `QuestionRow`. |
 | `app/src/App.tsx` | `askInChat`, the effect that applies answers, `logHiderAnswer`, stamping `Round.chatGames`, running `forgetUnusedChats`. |
@@ -87,8 +88,11 @@ catch-up:    on join and on returning to the foreground a phone sends 'hello' (w
    the original when decoding fails; refuse. Receivers strip again before
    keeping (and `restoreChats` does on import), so a phone's copy never
    depends on another phone's app having done it.
-4. **No position in a chat item.** A question carries the question and a
-   chosen radar distance; where the seeker stood stays in `Round.chatAsks`
+4. **No position in a chat item.** A question carries the question, a
+   chosen radar distance, and for matching/measuring the *name* of the
+   seeker's own nearest one (`subject`, with a distance for measuring) —
+   what a seeker says out loud: "is your nearest library the same as mine?
+   Mine is Main Library." Where the seeker stood stays in `Round.chatAsks`
    on their phone. `parseQuestion` rebuilds every item from known fields, so
    a position attached by a sender is dropped, not kept (tested).
 5. **Nothing answers itself.** `chat.answer` is only called from an
@@ -143,8 +147,25 @@ What `verify:chat:ui` proves, each at the layer that fails:
 - leaving the game keeps the chat while a round names it; deleting the
   rounds removes every `chat/` key; re-opening the file puts them back
 
+## The messaging layout
+
+The Chat section is a messaging app inside the sheet. `.app.chat-open`
+grows the sheet to `--chat-sheet` (82dvh) and `.chatpanel.chatview` takes
+that height, so the **thread** scrolls, never the sheet, and the composer
+stays at the bottom (`verify-chat-ui` asserts both after 14 messages).
+`threadRows` (chat.ts, tested) decides runs — same author within
+`GROUP_GAP_MS` and the same day — and day lines. A message shows at once as
+"Sending…" and turns into the delivered one when the relay acks; on
+failure it says "Not sent · Tap to retry". The thread follows new messages
+only while the reader is within 80 px of the bottom. The input is 16 px so
+iOS does not zoom on focus; how the iOS keyboard pushes the sheet has not
+been checked on a real phone.
+
 ## Traps already hit
 
+- **A phone ran a build from before the chat went local**, calling
+  `post_chat`, which dev never had, so no question ever loaded. The fix is
+  `src/update.ts` (see the `jetleg` skill); `verify:update` covers it.
 - **realtime-js sends a user broadcast as a binary frame**, not the JSON
   array other messages use (`lib/serializer.js`, kind byte 3, five length
   bytes, an encoding byte, then topic, event, payload). A harness that reads

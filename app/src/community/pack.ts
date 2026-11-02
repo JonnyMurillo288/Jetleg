@@ -164,6 +164,33 @@ function railLayer(pack: PackMap): LayerFeature[] | null {
  * reported if they name a point the layer does not have.
  */
 export function finalizePack(draft: PackMap): { pack: PackMap; notes: string[] } {
+  const steps = finalizeSteps(draft);
+  for (;;) {
+    const next = steps.next();
+    if (next.done) return next.value;
+  }
+}
+
+/**
+ * `finalizePack` one category at a time, for a caller that wants to show
+ * progress: yields before each category's cells are built.
+ */
+export async function finalizePackStepwise(
+  draft: PackMap,
+  onStep: (done: number, total: number, key: string) => void,
+): Promise<{ pack: PackMap; notes: string[] }> {
+  const steps = finalizeSteps(draft);
+  for (let done = 0; ; done++) {
+    const next = steps.next();
+    if (next.done) return next.value;
+    onStep(done, VORONOI_KEYS.length, next.value);
+    // Let the progress paint before the next category blocks the thread: a
+    // frame, then a task after it, since timeouts alone can run back to back unpainted.
+    await new Promise<void>((r) => (typeof requestAnimationFrame === 'function' ? requestAnimationFrame(() => setTimeout(r, 0)) : setTimeout(r, 0)));
+  }
+}
+
+function* finalizeSteps(draft: PackMap): Generator<string, { pack: PackMap; notes: string[] }> {
   const notes: string[] = [];
   const layers = { ...draft.layers };
   const rail = railLayer(draft);
@@ -179,6 +206,7 @@ export function finalizePack(draft: PackMap): { pack: PackMap; notes: string[] }
   const custom = draft.customVoronoi.filter((k) => draft.voronoi[k]?.length);
 
   for (const key of VORONOI_KEYS) {
+    yield key;
     const points = (layers[key] ?? []).filter((f): f is Feature<Point, LayerFeature['properties']> => f.geometry.type === 'Point');
     if (custom.includes(key)) {
       const ids = new Set(points.map((p) => p.properties.id));

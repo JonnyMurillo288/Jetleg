@@ -10,6 +10,8 @@ import { StatsPage } from './pages/StatsPage';
 import { AboutPage, PrivacyPage } from './pages/InfoPages';
 import { parseRoute, useRoute } from './route';
 import { finishGoogleSignIn, restorePageAfterGoogle } from './community/account';
+import { startUpdates } from './update';
+import { UpdateBanner } from './ui/UpdateBanner';
 
 /**
  * Several pages in one bundle, chosen by hash (route.ts): the landing page,
@@ -29,6 +31,7 @@ if (new URLSearchParams(window.location.search).has('checkout') && parseRoute(wi
 // Back from Google sign-in: put the page back now, finish the sign-in after.
 restorePageAfterGoogle();
 void finishGoogleSignIn();
+startUpdates();
 
 function Root() {
   const route = useRoute();
@@ -46,5 +49,6 @@ function Root() {
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <Root />
+    <UpdateBanner />
   </StrictMode>,
 );

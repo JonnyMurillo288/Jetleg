@@ -26,6 +26,7 @@ import {
   type ChatLog,
   type ChatMessage,
   type ChatQuestion,
+  type ChatSubject,
   type Hello,
 } from './chat';
 import { loadLog, loadPhotos, saveLog, savePhoto } from './local';
@@ -254,7 +255,7 @@ export function useGameChat(game: LocalGame | null, role: Role, viewing: boolean
     return (await channel.current.send({ type: 'broadcast', event, payload })) === 'ok';
   };
 
-  const ask = async (q: Question, text: string, distanceM?: number): Promise<Result<ChatQuestion>> => {
+  const ask = async (q: Question, text: string, distanceM?: number, subject?: ChatSubject | null): Promise<Result<ChatQuestion>> => {
     if (!game) return fail('Join a game first.');
     if (role !== 'seeker') return fail('Only a seeker can ask. Switch to Seeker first.');
     if (q.answerKind === 'null') return fail('That question has no answer to ask for.');
@@ -269,6 +270,7 @@ export function useGameChat(game: LocalGame | null, role: Role, viewing: boolean
       text,
       answerKind: q.answerKind,
       distanceM: distanceM ?? null,
+      subject: subject ?? null,
       askedAt,
       deadlineAt: askedAt + q.timeLimitMin * 60_000,
       answer: null,

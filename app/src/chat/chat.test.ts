@@ -20,6 +20,7 @@ import {
   parseQuestion,
   photoChunks,
   stripMetadata,
+  threadRows,
   unreadCount,
   type ChatMessage,
   type ChatQuestion,
@@ -253,5 +254,48 @@ describe('EXIF, where a phone writes its position', () => {
   it('refuses something that is not a whole JPEG rather than passing it through', () => {
     expect(() => stripMetadata(new Uint8Array([0x89, 0x50, 0x4e, 0x47]))).toThrow();
     expect(() => stripMetadata(new Uint8Array([0xff, 0xd8, 0xff, 0xe1, 0xff, 0xff]))).toThrow();
+  });
+});
+
+describe('the thread, as a messaging app shows it', () => {
+  const at = (h: number, m: number, day = 31) => new Date(2026, 9, day, h, m).getTime();
+  const now = at(18, 0);
+
+  it('runs of one person’s messages group; a gap, another person or a new day breaks them', () => {
+    const rows = threadRows([
+      msg('a', 'sam', at(17, 0)),
+      msg('b', 'sam', at(17, 1)),
+      msg('c', 'sam', at(17, 9)),   // eight minutes later: a new run
+      msg('d', 'hana', at(17, 10)),
+      msg('e', 'sam', at(17, 11)),
+    ], 'sam', now).filter((r) => r.kind === 'message');
+    expect(rows.map((r) => r.kind === 'message' && `${r.message.id}:${r.first ? 'F' : '-'}${r.last ? 'L' : '-'}`))
+      .toEqual(['a:F-', 'b:-L', 'c:FL', 'd:FL', 'e:FL']);
+    expect(rows.map((r) => r.kind === 'message' && r.mine)).toEqual([true, true, true, false, true]);
+  });
+
+  it('marks each new day, as Today, Yesterday or the date', () => {
+    const rows = threadRows([msg('a', 'x', at(9, 0, 29)), msg('b', 'x', at(23, 59, 30)), msg('c', 'x', at(0, 1, 31))], 'me', now);
+    const days = rows.filter((r) => r.kind === 'day').map((r) => r.kind === 'day' && r.label);
+    expect(days).toHaveLength(3);
+    expect(days.slice(1)).toEqual(['Yesterday', 'Today']);
+    // Across midnight, two minutes apart, they are still two runs.
+    expect(rows.filter((r) => r.kind === 'message').every((r) => r.kind === 'message' && r.first && r.last)).toBe(true);
+  });
+});
+
+describe('the asker’s own nearest one, named with the question', () => {
+  it('is kept: a name, and a distance for measuring', () => {
+    expect(q({ subject: { name: 'Main Library', distanceM: 420 } }).subject).toEqual({ name: 'Main Library', distanceM: 420 });
+    expect(q({ subject: { name: 'Panhandle', distanceM: null } }).subject).toEqual({ name: 'Panhandle', distanceM: null });
+    expect(q().subject).toBeNull();
+  });
+
+  it('a malformed one is dropped, and nothing rides along on it', () => {
+    expect(q({ subject: { name: '' } }).subject).toBeNull();
+    expect(q({ subject: { name: 'x'.repeat(121) } }).subject).toBeNull();
+    expect(q({ subject: 'Main Library' }).subject).toBeNull();
+    const s = q({ subject: { name: 'Main Library', distanceM: 420, lon: -122.41, lat: 37.78 } }).subject as Record<string, unknown>;
+    expect(Object.keys(s).sort()).toEqual(['distanceM', 'name']);
   });
 });

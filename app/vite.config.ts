@@ -38,7 +38,10 @@ export default defineConfig({
     ...(useHttps ? [basicSsl()] : []),
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // Registered from src/update.ts, which looks for new versions itself
+      // and asks before reloading (an installed app rarely looks on its own).
+      registerType: 'prompt',
+      injectRegister: false,
       includeAssets: ['data/*.geojson', 'data/*.json'],
       manifest: {
         name: 'JetLeg — Hide+Seek San Francisco',
@@ -56,6 +59,11 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // The very first install takes over the page it was installed from,
+        // so it works offline straight away. Later versions still wait to be
+        // asked (registerType 'prompt'): claiming only happens on activation,
+        // and an update does not activate until Update is tapped.
+        clientsClaim: true,
         // Layer files are large; the default 2 MB cap would silently skip them.
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         // jpg: the landing page's picture of the board.

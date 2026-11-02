@@ -58,6 +58,7 @@ npm run verify:room    # verify-room.ts — game rooms + live sharing: who gets 
 npm run verify:room:ui # verify-room-ui.cjs — a hider and two seekers through the Game tab; asks the hider's map what it drew, watches what the hider's browser sends, and checks the hider's answers follow the chosen live seeker (that part needs TEST_LOGIN_CODE set, to start a round)
 npm run verify:chat         # verify-chat.ts — game chat's relay: no table or bucket exists, members only, a paced photo arrives whole, nothing kept (needs `supabase start`)
 npm run verify:chat:ui      # verify-chat-ui.cjs — ask, clock, answer by hand, zone count moves, catch-up after the app was closed, a GPS-tagged photo leaves with no EXIF, game file carries the chat, deleting rounds deletes it (needs TEST_LOGIN_CODE). See the `jetleg-chat` skill
+npm run verify:update       # verify-update.cjs — an installed copy picks up a new deploy: on its own when just opened, by banner when in use (needs `npm run build`, no backend)
 npm run verify:community    # verify-community.ts — community maps: who may publish/like/comment, versions, branches, concurrent counts, the real emailed-code sign-in
 npm run verify:community:ui # verify-community-ui.cjs — two browsers in the map studio (#/maps): a station map, then a whole city (boundary, OSM stations + places, Voronoi built and hand-made), play it in the game, like, comment, branch. OSM is mocked.
 npm run verify:developer    # verify-developer.ts — developer list, the fixed testing code (listed addresses only, lockout), then paywall -> sign in -> round starts, in a browser
@@ -172,6 +173,17 @@ band or an empty POI layer is a real signal, not noise to silence.
   screenshots.** `.page` is the scroller, not the document, so Playwright
   captures one viewport and the rest of a long page goes unlooked-at. Grow
   the container first (`.page{height:auto;overflow:visible}`).
+- **An installed copy of the app can run an old build for days.** The
+  service worker serves what it has, and a browser only looks for a newer
+  one when a page is freshly *opened* — a phone's home-screen app mostly
+  resumes. A phone ran a day-old build that called `post_chat`, a server
+  function a later deploy had removed. `src/update.ts` now looks on every
+  return to the foreground and every 30 min, applies an update found in the
+  first 10 s of opening, and otherwise shows a banner (registerType
+  `prompt`, `clientsClaim` for the first install only). When a player
+  reports something you have already fixed, ask whether they see the
+  "new version" banner, and check the deploy history
+  (`wrangler pages deployment list`) for what their phone could be running.
 - **The game chat is never stored on a server.** It goes phone to phone
   over a broadcast relay and each phone keeps its copy with its rounds, in
   the game file, deleted with them. Do not add a table or bucket for it.

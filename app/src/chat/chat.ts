@@ -30,6 +30,9 @@ export const HELLO_EVENT = 'hello';
 export const SYNC_EVENT = 'sync';
 export const chatTopic = (gameId: string) => `chat:${gameId}`;
 
+/** The asker's own nearest one, named with the question (subject.ts). */
+export type ChatSubject = { name: string; distanceM: number | null };
+
 export type ChatQuestion = {
   id: string;
   gameId: string;
@@ -42,6 +45,12 @@ export type ChatQuestion = {
   answerKind: Exclude<AnswerKind, 'null'>;
   /** Radar "Choose" only: the radius the seeker said. */
   distanceM: number | null;
+  /**
+   * Matching and measuring: the asker's own nearest one — "is your nearest
+   * library the same as mine? Mine is Main Library." A name, and for
+   * measuring how far the asker is from it.
+   */
+  subject: ChatSubject | null;
   /** The asker's clock. Phones keep network time; the clock is shown, not enforced. */
   askedAt: number;
   deadlineAt: number;
@@ -110,6 +119,11 @@ export function parseQuestion(raw: unknown): ChatQuestion | null {
   const limit = r.deadlineAt - r.askedAt;
   if (limit < 60_000 || limit > 3_600_000) return null;
   const distanceM = typeof r.distanceM === 'number' && r.distanceM >= 1 && r.distanceM <= 100_000 ? r.distanceM : null;
+  const s = r.subject as Record<string, unknown> | null | undefined;
+  const subjectName = s && typeof s === 'object' ? text(s.name, 120) : null;
+  const subject: ChatSubject | null = subjectName
+    ? { name: subjectName, distanceM: typeof s!.distanceM === 'number' && s!.distanceM >= 0 && s!.distanceM <= 100_000 ? s!.distanceM : null }
+    : null;
 
   const base: ChatQuestion = {
     id: qid,
@@ -121,6 +135,7 @@ export function parseQuestion(raw: unknown): ChatQuestion | null {
     text: question,
     answerKind: r.answerKind as ChatQuestion['answerKind'],
     distanceM,
+    subject,
     askedAt: r.askedAt,
     deadlineAt: r.deadlineAt,
     answer: null,
@@ -462,4 +477,40 @@ export function hasExif(bytes: Uint8Array): boolean {
     i += 2 + len;
   }
   return false;
+}
+
+// ------------------------------------------------------------- the thread
+
+/** Messages from one person this close together read as one run. */
+export const GROUP_GAP_MS = 3 * 60_000;
+
+export type ThreadRow =
+  | { kind: 'day'; key: string; label: string }
+  | { kind: 'message'; key: string; message: ChatMessage; mine: boolean; first: boolean; last: boolean };
+
+function dayLabel(t: number, now: number): string {
+  const day = (x: number) => new Date(x).toDateString();
+  if (day(t) === day(now)) return 'Today';
+  if (day(t) === day(now - 86_400_000)) return 'Yesterday';
+  return new Date(t).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+/**
+ * The chat laid out the way messaging apps do: a line for each new day, and
+ * runs of messages from one person shown as one group — their name over the
+ * first, the time under the last.
+ */
+export function threadRows(messages: ChatMessage[], me: string, now: number): ThreadRow[] {
+  const rows: ThreadRow[] = [];
+  messages.forEach((m, i) => {
+    const prev = messages[i - 1];
+    const next = messages[i + 1];
+    const newDay = !prev || new Date(prev.createdAt).toDateString() !== new Date(m.createdAt).toDateString();
+    if (newDay) rows.push({ kind: 'day', key: `day-${m.id}`, label: dayLabel(m.createdAt, now) });
+    const joinsPrev = !newDay && !!prev && prev.authorId === m.authorId && m.createdAt - prev.createdAt <= GROUP_GAP_MS;
+    const joinsNext = !!next && next.authorId === m.authorId && next.createdAt - m.createdAt <= GROUP_GAP_MS
+      && new Date(next.createdAt).toDateString() === new Date(m.createdAt).toDateString();
+    rows.push({ kind: 'message', key: m.id, message: m, mine: m.authorId === me, first: !joinsPrev, last: !joinsNext });
+  });
+  return rows;
 }

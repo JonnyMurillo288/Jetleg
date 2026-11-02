@@ -20,6 +20,7 @@
     "verify:room:ui": "node verify-room-ui.cjs",
     "verify:chat": "tsx verify-chat.ts",
     "verify:chat:ui": "node verify-chat-ui.cjs",
+    "verify:update": "node verify-update.cjs",
     "verify:community": "tsx verify-community.ts",
     "verify:community:ui": "node verify-community-ui.cjs",
     "verify:developer": "tsx verify-developer.ts",

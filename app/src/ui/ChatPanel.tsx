@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { GameData } from '../data/load';
 import type { LocalGame } from '../live/room';
 import type { Answer, AskEntry, Category, LngLat, Question, Role } from '../engine/types';
 import { CATEGORY_META, CATEGORY_ORDER, QUESTIONS, QUESTIONS_BY_ID } from '../engine/questions';
 import { useGame } from '../store/game';
-import { answerChoices, answerLabel, answerTiming, openQuestions, type ChatQuestion } from '../chat/chat';
+import { answerChoices, answerLabel, answerTiming, openQuestions, threadRows, type ChatQuestion, type ChatSubject } from '../chat/chat';
 import type { GameChat } from '../chat/useGameChat';
 import { computeAnswer } from './HiderPanel';
+import { subjectFor } from '../chat/subject';
 import { Countdown, Lightbox, PhotoThumb } from './ChatPhotos';
 import { formatDistance, fromRadiusInput, radiusUnit, toRadiusInput } from './units';
 
@@ -64,7 +65,7 @@ export function ChatPanel(props: {
 
   const open = openQuestions(chat.questions);
   return (
-    <div className="panel chatpanel">
+    <div className={`panel chatpanel ${view === 'chat' ? 'chatview' : ''}`}>
       <div className="seg wide">
         <button className={view === 'questions' ? 'on' : ''} onClick={() => setView('questions')}>
           Questions{open.length ? ` · ${open.length} open` : ''}
@@ -108,7 +109,7 @@ function Questions(props: Parameters<typeof ChatPanel>[0] & {
   return (
     <>
       {role === 'seeker' && (playing
-        ? <AskComposer onAsk={props.onAsk} pins={props.pins} />
+        ? <AskComposer onAsk={props.onAsk} pins={props.pins} data={props.data} origin={props.origin} />
         : <p className="pad-x muted small">Start a seeking round on the Play tab to ask questions here.</p>)}
       {role === 'hider' && !playing && (
         <p className="pad-x muted small">Start a hiding round on the Play tab to answer questions here.</p>
@@ -145,7 +146,13 @@ function Questions(props: Parameters<typeof ChatPanel>[0] & {
 }
 
 /** The seeker's way in: the catalog, by category, as on the Ask tab. */
-function AskComposer(props: { onAsk: (q: Question, extra?: AskExtra) => Promise<string | null>; pins: { start?: LngLat; end?: LngLat } }) {
+function AskComposer(props: {
+  onAsk: (q: Question, extra?: AskExtra) => Promise<string | null>;
+  pins: { start?: LngLat; end?: LngLat };
+  data: GameData;
+  /** Where the seeker stands: their nearest one is named with the question. */
+  origin: LngLat | null;
+}) {
   const settings = useGame((s) => s.settings);
   const [category, setCategory] = useState<Category>('matching');
   const [questionId, setQuestionId] = useState('');
@@ -194,6 +201,7 @@ function AskComposer(props: { onAsk: (q: Question, extra?: AskExtra) => Promise<
         {q && (
           <>
             <p className="qtext">“{q.id === 'radar-choose' ? `Are you within ${formatDistance(chooseM, settings.units)} of me?` : q.text}”</p>
+            <SubjectLine q={q} subject={subjectFor(q, props.origin, props.data)} who="Your" units={settings.units} />
             {q.spec && <p className="muted small"><b>Photo spec:</b> {q.spec}</p>}
             {q.caveat && <p className="muted small">{q.caveat}</p>}
             {q.id === 'radar-choose' && (
@@ -251,6 +259,14 @@ function ChatQuestionCard(props: Parameters<typeof ChatPanel>[0] & {
           : <Countdown deadline={cq.deadlineAt} />}
       </div>
       <p className="qtext">“{cq.text}”</p>
+      {q && (
+        <SubjectLine
+          q={q}
+          subject={cq.subject}
+          who={cq.askedBy === props.me ? 'Your' : `${cq.askerName}’s`}
+          units={units}
+        />
+      )}
       <p className="muted small">
         {cq.askedBy === props.me ? 'You' : cq.askerName}{cq.askerTeam ? ` (${cq.askerTeam})` : ''} asked at {clockTime(cq.askedAt)}
         {timing && <> · {cq.answeredBy === props.me ? 'you' : cq.answererName} answered in {timing.took}{timing.late && <b className="warntext"> — late</b>}</>}
@@ -275,6 +291,22 @@ function ChatQuestionCard(props: Parameters<typeof ChatPanel>[0] & {
         />
       )}
     </li>
+  );
+}
+
+/**
+ * The asker's own nearest one, the blank in "is your nearest ___ the same
+ * as mine?" filled in: "Sam's nearest library: Main Library". For measuring,
+ * with how far they are from it, in this phone's units.
+ */
+function SubjectLine(props: { q: Question; subject: ChatSubject | null; who: string; units: 'imperial' | 'metric' }) {
+  const { q, subject } = props;
+  if (!subject) return null;
+  return (
+    <p className="subject">
+      {props.who} nearest {q.label.toLowerCase()}: <b>{subject.name}</b>
+      {subject.distanceM !== null && <span className="muted"> · {formatDistance(subject.distanceM, props.units)} away</span>}
+    </p>
   );
 }
 
@@ -381,43 +413,106 @@ function AnswerBox(props: {
   );
 }
 
+type Pending = { id: string; body: string; failed: string | null };
+
+/**
+ * The Chat section, laid out like a messaging app: bubbles, yours on the
+ * right; runs grouped with the name over the first and the time under the
+ * last; a line for each day; the box to type in pinned to the bottom. A
+ * message shows the moment it is sent, marked "Sending…" until the relay has
+ * it, and "Not sent" with a retry if it never does.
+ */
 function Chat(props: { game: LocalGame; chat: GameChat }) {
   const { game, chat } = props;
   const [draft, setDraft] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const end = useRef<HTMLDivElement>(null);
+  const [pending, setPending] = useState<Pending[]>([]);
+  const thread = useRef<HTMLDivElement>(null);
+  /** Follow new messages only while the reader is at the bottom, as messaging apps do. */
+  const following = useRef(true);
+  const rows = useMemo(() => threadRows(chat.messages, game.profileId, Date.now()), [chat.messages, game.profileId]);
 
-  useEffect(() => { end.current?.scrollIntoView({ block: 'nearest' }); }, [chat.messages.length]);
+  useLayoutEffect(() => {
+    const el = thread.current;
+    if (el && following.current) el.scrollTop = el.scrollHeight;
+  }, [rows.length, pending.length]);
 
-  const send = async () => {
+  const deliver = async (p: Pending) => {
+    const res = await chat.say(p.body);
+    setPending((ps) => (res.ok ? ps.filter((x) => x.id !== p.id) : ps.map((x) => (x.id === p.id ? { ...x, failed: res.error } : x))));
+  };
+  const send = () => {
     const body = draft.trim();
     if (!body) return;
-    setBusy(true);
-    setError(null);
-    const res = await chat.say(body);
-    setBusy(false);
-    if (!res.ok) { setError(res.error); return; }
+    const p: Pending = { id: `${Date.now()}-${Math.random()}`, body, failed: null };
+    setPending((ps) => [...ps, p]);
     setDraft('');
+    following.current = true;
+    void deliver(p);
+  };
+  const retry = (p: Pending) => {
+    setPending((ps) => ps.map((x) => (x.id === p.id ? { ...x, failed: null } : x)));
+    void deliver(p);
   };
 
   return (
-    <div className="pad-x">
-      {chat.messages.length === 0 && <p className="muted">Nobody has said anything yet. Trash talk, rulings and “where ARE you” go here.</p>}
-      <ul className="chatlog">
-        {chat.messages.map((m) => (
-          <li key={m.id} className={m.authorId === game.profileId ? 'mine' : ''}>
-            <span className="who">{m.authorId === game.profileId ? 'You' : m.authorName} <span className={`tag ${m.authorRole}`}>{m.authorRole}</span> <span className="muted small">{clockTime(m.createdAt)}</span></span>
-            <span className="body">{m.body}</span>
-          </li>
+    <div className="messenger">
+      <div
+        className="thread"
+        ref={thread}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        }}
+      >
+        {rows.length === 0 && pending.length === 0 && (
+          <div className="thread-empty">
+            <b>No messages yet</b>
+            <span>Trash talk, rulings and “where ARE you” go here. Questions have their own tab.</span>
+          </div>
+        )}
+        {rows.map((r) =>
+          r.kind === 'day' ? (
+            <div key={r.key} className="dayline"><span>{r.label}</span></div>
+          ) : (
+            <div key={r.key} className={`msg ${r.mine ? 'mine' : 'theirs'} ${r.first ? 'first' : ''} ${r.last ? 'last' : ''}`}>
+              {r.first && !r.mine && (
+                <div className="msg-who">
+                  {r.message.authorName} <span className={`tag ${r.message.authorRole}`}>{r.message.authorRole}</span>
+                </div>
+              )}
+              <div className="bubble">{r.message.body}</div>
+              {r.last && <div className="msg-time">{clockTime(r.message.createdAt)}</div>}
+            </div>
+          ),
+        )}
+        {pending.map((p) => (
+          <div key={p.id} className={`msg mine first last pending ${p.failed ? 'failed' : ''}`}>
+            <div className="bubble">{p.body}</div>
+            <div className="msg-time">
+              {p.failed
+                ? <button className="link danger small" onClick={() => retry(p)} title={p.failed}>Not sent · Tap to retry</button>
+                : 'Sending…'}
+            </div>
+          </div>
         ))}
-      </ul>
-      <div ref={end} />
-      <form className="chatinput" onSubmit={(e) => { e.preventDefault(); send(); }}>
-        <input type="text" value={draft} maxLength={500} placeholder="Say something…" onChange={(e) => setDraft(e.target.value)} aria-label="Message" />
-        <button className="primary" disabled={busy || !draft.trim()}>Send</button>
+      </div>
+
+      <form className="composer" onSubmit={(e) => { e.preventDefault(); send(); }}>
+        <input
+          type="text"
+          value={draft}
+          maxLength={500}
+          placeholder="Message"
+          enterKeyHint="send"
+          aria-label="Message"
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <button className="sendbtn" disabled={!draft.trim()} aria-label="Send">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path d="M12 19V5M5 12l7-7 7 7" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
       </form>
-      {error && <p className="warntext">{error}</p>}
     </div>
   );
 }

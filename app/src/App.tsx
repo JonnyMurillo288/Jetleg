@@ -18,6 +18,7 @@ import { TopBar, type Tab } from './ui/TopBar';
 import { ChatPanel, type AskExtra } from './ui/ChatPanel';
 import { useGameChat } from './chat/useGameChat';
 import { chatGamesOf, forgetUnusedChats } from './chat/local';
+import { subjectFor } from './chat/subject';
 import { openQuestions, type ChatQuestion } from './chat/chat';
 import { formatDistance } from './ui/units';
 import { LayerPanel } from './ui/LayerPanel';
@@ -203,7 +204,7 @@ export default function App() {
     const text = q.id === 'radar-choose' && extra?.distanceM
       ? `Are you within ${formatDistance(extra.distanceM, settings.units)} of me?`
       : q.text;
-    const res = await chat.ask(q, text, extra?.distanceM);
+    const res = await chat.ask(q, text, extra?.distanceM, data ? subjectFor(q, from, data) : null);
     if (!res.ok) return res.error;
     addChatAsk(res.value.id, {
       questionId: q.id,
@@ -449,7 +450,7 @@ export default function App() {
   }
 
   return (
-    <div className={`app ${sheetCollapsed ? 'collapsed' : ''}`}>
+    <div className={`app ${sheetCollapsed ? 'collapsed' : ''} ${tab === 'chat' ? 'chat-open' : ''}`}>
       <TopBar
         loc={loc}
         alive={evaluated.alive.length}

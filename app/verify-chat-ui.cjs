@@ -231,10 +231,29 @@ async function startRound(pl, role, email) {
     const zonesBefore = Number(await seeker.p.textContent('.topbar .count strong'));
     await seeker.p.click('.chatbtn');
     await seeker.p.waitForSelector('.askcomposer select', { timeout: 10000 });
+    // The blank in "is your nearest park the same as mine?", filled in: the
+    // seeker's own nearest park, worked out here from the park data itself,
+    // independently of the app's engine.
+    const parks = JSON.parse(fs.readFileSync('public/data/poi-parks.geojson', 'utf8')).features;
+    const metres = ([lon, lat]) => {
+      const R = 6371000, r = Math.PI / 180, dLat = (lat - SEEKER_AT.latitude) * r, dLon = (lon - SEEKER_AT.longitude) * r;
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(SEEKER_AT.latitude * r) * Math.cos(lat * r) * Math.sin(dLon / 2) ** 2;
+      return 2 * R * Math.asin(Math.sqrt(a));
+    };
+    const nearestPark = parks.reduce((best, f) => (metres(f.geometry.coordinates) < metres(best.geometry.coordinates) ? f : best)).properties.name;
     await seeker.p.selectOption('.askcomposer select', 'match-park');
+    check('before asking, the seeker sees which park they will be naming', (await seeker.p.textContent('.askcomposer .subject')).includes(`Your nearest park: ${nearestPark}`), await seeker.p.textContent('.askcomposer .subject'));
     await clickText(seeker.p, '^Ask ·', '.askcomposer button');
     const asked = await seeker.p.waitForSelector('.cq.waiting[data-question="match-park"]', { timeout: 15000 }).then(() => true, () => false);
     check('the seeker’s question appears with its clock', asked && /\d:\d\d/.test(await seeker.p.textContent('.cq.waiting [role=timer]')));
+    check('...naming the park on the card', (await seeker.p.textContent('.cq.waiting[data-question="match-park"] .subject')).includes(`Your nearest park: ${nearestPark}`));
+    // Measuring names one too, with how far away it is — previewed, not asked.
+    await clickText(seeker.p, '^Measuring', '.askcomposer .chip');
+    await seeker.p.selectOption('.askcomposer select', 'meas-library');
+    const measuring = await seeker.p.textContent('.askcomposer .subject');
+    check('a measuring question names the seeker’s nearest library and how far it is', /Your nearest library: .+ · [\d.,]+ (mi|ft) away/.test(measuring), measuring);
+    await seeker.p.screenshot({ path: path.join(shots, 'seeker-measuring-preview.png') });
+    await seeker.p.selectOption('.askcomposer select', '');
 
     const badge = await hider.p.waitForFunction(() => document.querySelector('.chatbtn.owed .badge')?.textContent === '1', null, { timeout: 15000 }).then(() => true, () => false);
     check('the hider’s Chat button shows one question owed, before opening it', badge);
@@ -246,6 +265,8 @@ async function startRound(pl, role, email) {
     const t2 = await hider.p.textContent('.cq.waiting [role=timer]');
     const secs = (t) => { const [m, s] = t.replace(/[^\d:]/g, '').split(':').map(Number); return m * 60 + s; };
     check('the hider’s clock counts down', secs(t1) - secs(t2) >= 1 && secs(t1) <= 300 && secs(t1) > 280, `${t1} → ${t2}`);
+    const named = await hider.p.textContent('.cq.waiting[data-question="match-park"] .subject');
+    check('the hider sees which park the seeker named — the seeker’s real nearest', named.includes(`Sam’s nearest park: ${nearestPark}`), named);
     check('the hider sees what the assistant reads, as a hint', /nearest park/i.test(await hider.p.textContent('.cq.waiting .answerbox .hint')));
     check('...and the Hit / Miss buttons, in those words', /Hit/.test(await hider.p.textContent('.cq.waiting .answerbox')) && /Miss/.test(await hider.p.textContent('.cq.waiting .answerbox')));
     await hider.p.screenshot({ path: path.join(shots, 'hider-question-open.png') });
@@ -335,19 +356,46 @@ async function startRound(pl, role, email) {
     await seeker.p.click('.chatbtn');
     await clickText(seeker.p, '^Chat', '.chatpanel .seg button');
     check('Chat is its own section, with no questions in it', !(await seeker.p.$('.chatpanel .cq')));
-    await seeker.p.fill('.chatinput input', 'you are so cooked');
-    await seeker.p.press('.chatinput input', 'Enter');
-    check('the seeker’s message shows as theirs', await waitText(seeker.p, '.chatlog li.mine .body', 'you are so cooked'));
+    check('an empty chat says so, in the middle of the thread', /No messages yet/.test(await seeker.p.textContent('.thread')));
+    await seeker.p.fill('.composer input', 'you are so cooked');
+    await seeker.p.press('.composer input', 'Enter');
+    check('a sent message shows at once, on the right, while it goes', await waitText(seeker.p, '.msg.mine .bubble', 'you are so cooked', 1000));
+    check('...and is marked delivered once the relay has it', await seeker.p.waitForFunction(() => !document.querySelector('.msg.pending') && /you are so cooked/.test(document.querySelector('.msg.mine:not(.pending) .bubble')?.textContent || ''), null, { timeout: 10000 }).then(() => true, () => false));
     const unread = await hider.p.waitForFunction(() => document.querySelector('.chatbtn .badge')?.textContent === '1', null, { timeout: 15000 }).then(() => true, () => false);
     check('the hider, on another tab, gets a badge for it', unread);
     await hider.p.click('.chatbtn');
     await clickText(hider.p, '^Chat', '.chatpanel .seg button');
-    check('the hider reads it', await waitText(hider.p, '.chatlog li:not(.mine) .body', 'you are so cooked'));
+    check('the hider reads it, on the left, with who sent it', await waitText(hider.p, '.msg.theirs .bubble', 'you are so cooked') && /Sam\s*seeker/.test(await hider.p.textContent('.msg.theirs.first .msg-who')));
     check('reading clears the badge', await hider.p.waitForFunction(() => !document.querySelector('.chatbtn .badge'), null, { timeout: 5000 }).then(() => true, () => false));
-    await hider.p.fill('.chatinput input', 'never. you are 3 km off');
-    await clickText(hider.p, '^Send$', '.chatinput button');
-    check('the seeker gets the reply, live', await waitText(seeker.p, '.chatlog li:not(.mine) .body', 'never'));
+    await hider.p.fill('.composer input', 'never. you are 3 km off');
+    await hider.p.click('.sendbtn');
+    check('the seeker gets the reply, live', await waitText(seeker.p, '.msg.theirs .bubble', 'never'));
+    await hider.p.fill('.composer input', 'try the park');
+    await hider.p.press('.composer input', 'Enter');
+    const grouped = await seeker.p.waitForFunction(() => {
+      const theirs = [...document.querySelectorAll('.msg.theirs')];
+      return theirs.length === 2 && theirs[0].matches('.first:not(.last)') && theirs[1].matches('.last:not(.first)');
+    }, null, { timeout: 10000 }).then(() => true, () => false);
+    check('two quick messages from one person read as one run: name once, time once', grouped);
+    // A long thread scrolls by itself; the box to type in stays put.
+    for (let i = 0; i < 14; i++) {
+      await seeker.p.fill('.composer input', `filler ${i}`);
+      await seeker.p.press('.composer input', 'Enter');
+    }
+    await seeker.p.waitForFunction(() => !document.querySelector('.msg.pending'), null, { timeout: 20000 });
+    const layout = await seeker.p.evaluate(() => {
+      const t = document.querySelector('.thread'), c = document.querySelector('.composer'), sheet = document.querySelector('.sheet');
+      const cr = c.getBoundingClientRect();
+      return { threadScrolls: t.scrollHeight > t.clientHeight, atBottom: t.scrollHeight - t.scrollTop - t.clientHeight < 4,
+        composerOnScreen: cr.bottom <= innerHeight && cr.top > innerHeight / 2, sheetScrolls: sheet.scrollHeight > sheet.clientHeight + 1 };
+    });
+    check('a long thread scrolls inside itself, showing the newest', layout.threadScrolls && layout.atBottom, JSON.stringify(layout));
+    check('...with the box to type in pinned at the bottom of the screen', layout.composerOnScreen && !layout.sheetScrolls, JSON.stringify(layout));
     await seeker.p.screenshot({ path: path.join(shots, 'seeker-chat.png') });
+    await hider.p.screenshot({ path: path.join(shots, 'hider-chat.png') });
+    await seeker.p.emulateMedia({ colorScheme: 'dark' });
+    await seeker.p.screenshot({ path: path.join(shots, 'seeker-chat-dark.png') });
+    await seeker.p.emulateMedia({ colorScheme: 'light' });
     check('no horizontal scroll on the chat at phone width', (await seeker.p.evaluate(() => document.documentElement.scrollWidth)) <= 390);
 
     // ---- nothing went to a database or a bucket
@@ -366,7 +414,7 @@ async function startRound(pl, role, email) {
     const file = JSON.parse(fs.readFileSync(filePath, 'utf8'));
     fs.copyFileSync(filePath, path.join(shots, 'game-file.json'));
     const chat = (file.chats || []).find(c => c.gameId === game.id);
-    check('the game file carries the chat: both questions and both messages', chat?.questions?.length === 2 && chat?.messages?.length === 2, JSON.stringify([chat?.questions?.length, chat?.messages?.length]));
+    check('the game file carries the chat: both questions and every message', chat?.questions?.length === 2 && chat?.messages?.length === 17, JSON.stringify([chat?.questions?.length, chat?.messages?.length]));
     const filePhoto = chat?.photos?.[photoQ?.payload.id] ? Buffer.from(chat.photos[photoQ.payload.id], 'base64') : null;
     check('...and the photo, with no metadata in it', !!filePhoto && !metadataIn(filePhoto).exif, filePhoto?.length);
     check('...and its rounds name the game', file.rounds.some(r => (r.chatGames || []).includes(game.id)));
@@ -399,6 +447,7 @@ async function startRound(pl, role, email) {
     await seeker.p.goto(TARGET + '#/stats', { waitUntil: 'domcontentloaded' });
     await seeker.p.waitForSelector('input[type=file]', { state: 'attached', timeout: 15000 });
     await seeker.p.setInputFiles('input[type=file]', filePath);
+    await waitText(seeker.p, 'button', 'Keep these rounds on this device');
     await clickText(seeker.p, 'Keep these rounds on this device');
     const back = await until(seeker.p, async () => (await chatKeys()).length === 2, 5000);
     check('opening the game file again puts the chat and photo back', back, JSON.stringify(await chatKeys()));

@@ -903,6 +903,11 @@ button.resume.big { min-height: 44px; }
 .clock.soon { color: var(--warn); }
 .clock.late { color: var(--no); font-size: 13px; }
 
+/* The blank filled in: the asker's own nearest one. */
+.subject {
+  margin: 2px 0 0; padding: 6px 10px; border-radius: 8px; font-size: 14px;
+  background: var(--bg); border-left: 3px solid var(--accent);
+}
 .answerbox { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 .answerbox .hint { margin: 0; }
 .answerbox button.link { align-self: flex-start; }
@@ -930,26 +935,76 @@ button.resume.big { min-height: 44px; }
 .lightbox-bar { display: flex; gap: 12px; align-items: center; justify-content: space-between; width: 100%; padding: 10px 16px; }
 .lightbox-bar button { background: transparent; color: #fff; border-color: #fff6; }
 
-.chatlog { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.chatlog li { display: flex; flex-direction: column; max-width: 85%; align-self: flex-start; }
-.chatlog li.mine { align-self: flex-end; text-align: right; }
-.chatlog .who { font-size: 12px; font-weight: 600; }
-.chatlog .body {
-  background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
-  padding: 7px 11px; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left;
-}
-.chatlog li.mine .body { background: var(--ink); color: var(--panel); border-color: var(--ink); }
 .tag.seeker { background: #dbeafe; color: #1e40af; }
 .tag.hider { background: #fce7f3; color: #9d174d; }
-.chatinput {
-  position: sticky; bottom: 0; display: flex; gap: 8px; padding: 8px 0;
-  background: var(--panel); margin-top: 8px;
+
+/* The Chat section: a messaging app inside the sheet. The sheet grows while
+   the chat is open, and the thread scrolls on its own with the box to type
+   in pinned under it. */
+:root { --bubble-me: #2563eb; --bubble-me-ink: #fff; --bubble-them: #eef1f5; --chat-sheet: 82dvh; }
+.app.chat-open .sheet { max-height: var(--chat-sheet); }
+.chatpanel.chatview {
+  /* The sheet's height, less its handle: the thread fills it, never the sheet scrolling. */
+  height: calc(var(--chat-sheet) - 44px - env(safe-area-inset-bottom));
+  padding-bottom: 0;
 }
-.chatinput input { flex: 1; }
+.messenger { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.thread {
+  flex: 1; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain; padding: 4px 12px 8px;
+  display: flex; flex-direction: column;
+}
+.thread-empty {
+  margin: auto; max-width: 260px; text-align: center; color: var(--muted);
+  display: flex; flex-direction: column; gap: 4px; font-size: 14px;
+}
+.thread-empty b { color: var(--ink); }
+.dayline { text-align: center; margin: 12px 0 6px; font-size: 12px; color: var(--muted); font-weight: 600; }
+.dayline span { background: var(--bg); padding: 3px 10px; border-radius: 999px; }
+
+.msg { display: flex; flex-direction: column; max-width: 78%; margin-top: 2px; }
+.msg.first { margin-top: 10px; }
+.msg.mine { align-self: flex-end; align-items: flex-end; }
+.msg.theirs { align-self: flex-start; align-items: flex-start; }
+.msg-who { font-size: 12px; font-weight: 600; color: var(--muted); margin: 0 0 3px 12px; }
+.msg-who .tag { font-size: 10px; padding: 1px 5px; font-weight: 600; }
+.bubble {
+  padding: 8px 13px; border-radius: 18px; font-size: 15px; line-height: 1.35;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.msg.mine .bubble { background: var(--bubble-me); color: var(--bubble-me-ink); }
+.msg.theirs .bubble { background: var(--bubble-them); color: var(--ink); }
+/* A run reads as one block: the corners on the sender's side tighten
+   between bubbles, and the last keeps a tail. */
+.msg.mine .bubble { border-bottom-right-radius: 6px; }
+.msg.mine:not(.first) .bubble { border-top-right-radius: 6px; }
+.msg.theirs .bubble { border-bottom-left-radius: 6px; }
+.msg.theirs:not(.first) .bubble { border-top-left-radius: 6px; }
+.msg-time { font-size: 11px; color: var(--muted); margin: 3px 6px 0; }
+.msg.pending .bubble { opacity: .6; }
+.msg.failed .bubble { opacity: 1; background: transparent; color: var(--no); border: 1px solid var(--no); }
+.msg-time button.link { min-height: 0; padding: 0; font-size: 11px; }
+
+.composer {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line); background: var(--panel);
+}
+.composer input[type="text"] {
+  flex: 1; min-width: 0; border-radius: 999px; padding: 10px 16px; font-size: 16px; /* 16px: iOS zooms smaller inputs */
+  background: var(--bg); border: 1px solid var(--line);
+}
+.composer input[type="text"]:focus { outline: none; border-color: var(--bubble-me); }
+.sendbtn {
+  flex: 0 0 auto; width: 40px; height: 40px; min-height: 40px; padding: 0; border-radius: 50%;
+  display: grid; place-items: center; border: 0; background: var(--bubble-me); color: #fff;
+}
+.sendbtn:disabled { background: var(--line); color: var(--muted); opacity: 1; }
 
 @media (prefers-color-scheme: dark) {
   .tag.seeker { background: #1e3a8a; color: #dbeafe; }
   .tag.hider { background: #831843; color: #fce7f3; }
+  :root:not([data-theme="light"]) { --bubble-me: #3b82f6; --bubble-them: #1f2937; }
 }
 
 /* Selection shapes: the tool row wraps on a phone rather than squeezing. */
@@ -967,3 +1022,15 @@ button.resume.big { min-height: 44px; }
 .maptools .maplayers-panel { max-height: calc(100dvh - env(safe-area-inset-top) - 150px); overflow-y: auto; overscroll-behavior: contain; }
 .maptools .maplayers-panel .maplayers-scroll { max-height: none; overflow: visible; }
 .app.studio .maptools.studio-layers .maplayers-panel { max-height: calc(100dvh - env(safe-area-inset-top) - 116px); }
+
+/* ------------------------------------------------------------ app updates */
+
+.updatebanner {
+  position: fixed; z-index: 2000; left: 50%; transform: translateX(-50%);
+  top: calc(env(safe-area-inset-top) + 8px);
+  display: flex; align-items: center; gap: 10px;
+  max-width: calc(100vw - 32px); padding: 6px 6px 6px 14px;
+  background: var(--ink); color: var(--panel); border-radius: 999px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .25); font-size: 14px;
+}
+.updatebanner button { min-height: 34px; padding: 4px 14px; border-radius: 999px; }
