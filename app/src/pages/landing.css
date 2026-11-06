@@ -39,7 +39,6 @@
   font-size: 12px;
   font-weight: 600;
 }
-@media (prefers-reduced-motion: reduce) { .lp-hero-slide { transition: none; } }
 
 /* Always the same dark veil and white type: they sit on a picture, not on the theme. */
 .lp-nav {

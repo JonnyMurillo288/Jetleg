@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useActiveRound, useGame } from '../store/game';
 import { CITY_NAME, HOME_MAP_NAME } from '../community/board';
 import { listMaps, type MapSummary } from '../community/api';
@@ -26,37 +26,41 @@ const HERO_SLIDES = [
 const SLIDE_MS = 6000;
 
 /**
- * San Francisco shows at once, as it always has. The others are only asked
- * for once it has arrived — not at the window's load event, which fires
- * before React has even drawn the hero — so they never compete with it for a
- * first visitor's connection, and a picture joins the turn only once it has
- * arrived too. Someone who has asked their device for less motion keeps the
- * first picture and nothing moves.
+ * San Francisco shows at once, as it always has. Each other picture is asked
+ * for only when the one before it has arrived — one at a time, so on a phone's
+ * connection Paris is not sharing the line with four others and the turn can
+ * start as soon as it is in — and a picture joins the turn only once loaded.
+ *
+ * It turns for everyone, reduced motion included: a slow cross-fade moves
+ * nothing across the screen, which is what that setting is for (zooming,
+ * sliding, parallax). Until 9222d23 it held still there, and on a phone with
+ * Reduce Motion on the hero simply never changed.
  */
 function HeroSlides() {
-  const [rest, setRest] = useState(false);
-  const [ready, setReady] = useState<boolean[]>(() => HERO_SLIDES.map((_, i) => i === 0));
+  const [ready, setReady] = useState<boolean[]>(() => HERO_SLIDES.map(() => false));
   const [shown, setShown] = useState(0);
-
-  const firstArrived = () => {
-    if (!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) setRest(true);
-  };
+  const rest = ready[0];
+  // Read by the timer, not a dependency of it: restarting the timer at every
+  // picture that arrived held a slow phone on San Francisco until the last one
+  // was in (22 s at 1.5 Mb/s, with Paris there at 9).
+  const readyNow = useRef(ready);
+  readyNow.current = ready;
 
   useEffect(() => {
     if (!rest) return;
     const t = window.setInterval(() => setShown((i) => {
       for (let step = 1; step <= HERO_SLIDES.length; step++) {
         const next = (i + step) % HERO_SLIDES.length;
-        if (ready[next]) return next;
+        if (readyNow.current[next]) return next;
       }
       return i;
     }), SLIDE_MS);
     return () => window.clearInterval(t);
-  }, [rest, ready]);
+  }, [rest]);
 
   return (
     <>
-      {HERO_SLIDES.map((slide, i) => (i === 0 || rest) && (
+      {HERO_SLIDES.map((slide, i) => (i === 0 || ready[i - 1]) && (
         <img
           key={slide.src}
           className={`lp-hero-img${i > 0 ? ' lp-hero-slide' : ''}${shown === i ? ' on' : ''}`}
@@ -65,7 +69,7 @@ function HeroSlides() {
           height={1000}
           alt={slide.alt}
           aria-hidden={shown === i ? undefined : true}
-          onLoad={() => { if (i === 0) firstArrived(); setReady((r) => (r[i] ? r : r.map((v, j) => v || j === i))); }}
+          onLoad={() => setReady((r) => (r[i] ? r : r.map((v, j) => v || j === i)))}
         />
       ))}
       <span className="lp-hero-city" aria-hidden>{HERO_SLIDES[shown].city}</span>
