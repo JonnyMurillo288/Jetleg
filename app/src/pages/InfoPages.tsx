@@ -60,8 +60,8 @@ export function AboutPage() {
           community section are made by the players who published them.
         </p>
         <p>
-          JetLeg is an unofficial, fan-made companion. It is not affiliated with or endorsed by the makers
-          of <i>Jet Lag: The Game</i> or its Hide+Seek game; you need their rulebook and cards to play.
+          JetLeg is inspired by <i>Jet Lag: The Game</i>’s Hide and Seek. It is an unofficial, fan-made
+          companion, not affiliated with or endorsed by its makers; you need their rulebook and cards to play.
         </p>
       </article>
     </Page>

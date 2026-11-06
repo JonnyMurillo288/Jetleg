@@ -60,6 +60,7 @@ export function Landing() {
             <a className="lp-btn light" href="#/maps/new">Create a map</a>
           </div>
           {inProgress && <p className="lp-resume">{round!.label} is still in progress.</p>}
+          <p className="lp-inspired">Inspired by <i>Jet Lag: The Game</i>’s Hide and Seek.</p>
         </div>
       </header>
 
@@ -281,6 +282,10 @@ export function Landing() {
         <a href="#/rules">Rules &amp; safety</a>
         <a href="#/privacy">Privacy</a>
         <a href="#/stats">Game stats</a>
+        <p className="lp-disclaimer">
+          Inspired by <i>Jet Lag: The Game</i>’s Hide and Seek. JetLeg is an unofficial, fan-made companion, not
+          affiliated with or endorsed by its makers.
+        </p>
       </footer>
     </div>
   );

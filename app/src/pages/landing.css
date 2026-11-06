@@ -207,3 +207,9 @@ figure figcaption strong { color: var(--ink); }
 .lp-amounts { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 8px 0 0; font-size: 15px; color: var(--muted); }
 .lp-amounts b { font-size: 26px; color: var(--ink); margin-right: 4px; }
 @media (min-width: 700px) { .lp-prices { grid-template-columns: 1fr 1fr; } }
+
+/* The credit to the show it comes from: under the hero's buttons, and in full in the footer. */
+.lp-inspired { margin: 14px 0 0; font-size: 13px; color: rgba(255, 255, 255, .8); }
+.landing > .pagefoot { flex-wrap: wrap; }
+/* A full row of its own under the links; the text kept to a readable width by padding, not max-width. */
+.lp-disclaimer { flex: 0 0 100%; margin: 6px 0 0; padding: 0 max(16px, calc((100% - 34rem) / 2)); text-align: center; font-size: 12.5px; color: var(--muted); }
