@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useGame } from '../store/game';
 import { describeAccuracy, isStale, useFixAge, type LocationState } from '../location/useLocation';
 import { formatDistance } from './units';
-import { getCachedEntitlement, type CachedEntitlement } from '../payments/entitlement';
+import { ENTITLEMENT_EVENT, getCachedEntitlement, type CachedEntitlement } from '../payments/entitlement';
+import { isProduct } from '../payments/products';
+import { formatTimeLeft } from './time';
 
 export type Tab = 'play' | 'layers' | 'results' | 'game' | 'chat' | 'help';
 
@@ -120,30 +122,29 @@ function EntitlementLine() {
   const [entitlement, setEntitlement] = useState<CachedEntitlement | null>(null);
 
   useEffect(() => {
-    getCachedEntitlement().then(setEntitlement);
-    // The active window's remaining time only changes with the clock, but a
-    // fresh purchase or a lapse should still show up without a reload.
-    const id = window.setInterval(() => getCachedEntitlement().then(setEntitlement), 60_000);
-    return () => window.clearInterval(id);
+    const read = () => getCachedEntitlement().then(setEntitlement);
+    read();
+    // A new check (joining a room, starting its clock, signing in) shows at
+    // once; the poll is for the time left, which only the clock changes.
+    window.addEventListener(ENTITLEMENT_EVENT, read);
+    const id = window.setInterval(read, 60_000);
+    return () => { window.clearInterval(id); window.removeEventListener(ENTITLEMENT_EVENT, read); };
   }, []);
 
-  if (!entitlement?.eligible || !entitlement.expiresAt) return null;
+  if (!entitlement?.eligible) return null;
   if (entitlement.product === 'developer') return <div className="muted small">Developer access</div>;
+  if (!entitlement.expiresAt) {
+    return isProduct(entitlement.product) ? <div className="muted small">Game room ready — its clock starts at the first round</div> : null;
+  }
 
   const remainingMs = new Date(entitlement.expiresAt).getTime() - Date.now();
   if (remainingMs <= 0) return null;
 
-  return <div className="muted small">{formatDuration(remainingMs)} left on this device's pass</div>;
-}
-
-function formatDuration(ms: number): string {
-  const totalMinutes = Math.max(1, Math.round(ms / 60_000));
-  const days = Math.floor(totalMinutes / 1440);
-  const hours = Math.floor((totalMinutes % 1440) / 60);
-  const minutes = totalMinutes % 60;
-  if (days > 0) return `${days}d ${hours}h`;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
+  return (
+    <div className="muted small">
+      {formatTimeLeft(remainingMs)} left {isProduct(entitlement.product) ? 'in your game room' : "on this device's pass"}
+    </div>
+  );
 }
 
 /**

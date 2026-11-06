@@ -186,11 +186,15 @@ below:
   departure from "sign-in should be optional and the local path must keep
   working" at the top of this document. Viewing/exporting rounds already
   played stays free regardless.
-- **Pricing**: one-time Stripe Checkout payments (not a subscription) —
-  $0.99 for a 72-hour window, $3.50 for a 7-day window. Every device needs
-  its own; there's no team-owner-pays-for-everyone.
-- **When the clock starts**: first use, not purchase — buying ahead of game
-  day doesn't burn the window before anyone plays.
+- **Pricing** (changed 6 Nov 2026): one-time Stripe Checkout payments (not
+  a subscription) for a **game room** — $5 for 2 days, $10 for a week. One
+  person buys, gets a code, and up to 8 accounts join with it and play
+  unlimited rounds until it runs out. Each account that joins keeps its place
+  for good, so places cannot be rotated. The per-device passes this replaced
+  ($0.99/72 h, $3.50/week, every device its own) still work for whoever
+  holds one, and are no longer sold. See `PAYMENTS.md`.
+- **When the clock starts**: the room's first round, not purchase — buying
+  ahead of game day doesn't burn the window before anyone plays.
 - **iOS strategy**: not addressed by this slice at all — there is no native
   app yet (Phase 5 hasn't started), so "sell only on the web" (this
   document's own "cheap way out") was the only question actually in play,

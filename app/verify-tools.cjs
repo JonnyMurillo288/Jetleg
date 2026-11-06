@@ -96,7 +96,7 @@ const check = (name, ok, detail) => {
   const cdp = await ctx.newCDPSession(p);
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
 
-  // Point at any deployment: `TARGET=https://jetleg-sf.pages.dev npm run verify:tools`
+  // Point at any deployment: `TARGET=https://jetleg.pages.dev npm run verify:tools`
   const target = (process.env.TARGET || 'http://127.0.0.1:4310/').replace(/#.*$/, '') + '#/play'; // the game's page; the root is the landing page
   console.log('target:', target, '\n');
   await p.goto(target, { waitUntil: 'domcontentloaded' });

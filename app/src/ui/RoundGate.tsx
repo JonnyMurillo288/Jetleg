@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { useGame, type Round } from '../store/game';
 import { PaywallModal } from './PaywallModal';
 import { restoreChats, withChats } from '../chat/local';
+import { startRoomClock } from '../payments/entitlement';
 
 /**
  * Shown when there is no active round: start one, or resume/export an old
@@ -9,8 +10,8 @@ import { restoreChats, withChats } from '../chat/local';
  * ended — both are playing again — while viewing and exporting rounds
  * already played stays available regardless of entitlement.
  */
-export function RoundGate(props: { canStart: boolean; onRestored: () => void; onResume: (r: Round) => Promise<string | null> }) {
-  const { canStart, onRestored } = props;
+export function RoundGate(props: { canStart: boolean; onOpenGame: () => void; onResume: (r: Round) => Promise<string | null> }) {
+  const { canStart } = props;
   const [showPaywall, setShowPaywall] = useState(false);
   const [resumeNote, setResumeNote] = useState<string | null>(null);
   const role = useGame((s) => s.role);
@@ -26,7 +27,7 @@ export function RoundGate(props: { canStart: boolean; onRestored: () => void; on
     const blob = new Blob([await withChats(exportJSON())], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `jetleg-sf-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `jetleg-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(a.href);
   };
@@ -36,6 +37,14 @@ export function RoundGate(props: { canStart: boolean; onRestored: () => void; on
     const res = importJSON(text);
     if (!res.ok) alert(res.error);
     else await restoreChats(text);
+  };
+
+  /** A game room's clock starts at its first round. */
+  const start = async () => {
+    setResumeNote(null);
+    const stopped = await startRoomClock();
+    if (stopped) setResumeNote(stopped);
+    else startRound();
   };
 
   /** Any round, finished or not; App puts its board back first. */
@@ -56,14 +65,9 @@ export function RoundGate(props: { canStart: boolean; onRestored: () => void; on
       </p>
 
       {canStart ? (
-        <button className="primary big" onClick={() => startRound()}>Start a new round</button>
+        <button className="primary big" onClick={start}>Start a new round</button>
       ) : showPaywall ? (
-        <PaywallModal
-          onRestored={() => {
-            onRestored();
-            setShowPaywall(false);
-          }}
-        />
+        <PaywallModal onOpenGame={props.onOpenGame} />
       ) : (
         <button className="primary big" onClick={() => setShowPaywall(true)}>Start a new round</button>
       )}

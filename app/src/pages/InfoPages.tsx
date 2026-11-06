@@ -107,16 +107,15 @@ export function PrivacyPage() {
         <ul>
           <li>
             <b>When you open the game:</b> your device is given an anonymous id — no name, no email — so
-            the site can tell whether that device has a pass to play.
+            the site can tell whether that device has a place in a game room.
           </li>
           <li>
-            <b>If you buy a pass:</b> payment is handled by Stripe; this site never sees your card. It keeps
-            a record of the pass, the device it was activated on, and the email you gave Stripe, so a pass
-            can be restored.
+            <b>If you buy a game room:</b> payment is handled by Stripe; this site never sees your card. It
+            keeps a record of the room, which device bought it, and the email you gave Stripe.
           </li>
           <li>
-            <b>If you join a game:</b> the name you typed, which game and team you are in, and whether you
-            are seeking or hiding.
+            <b>If you join a game:</b> the name you typed, which game and team you are in, whether you
+            are seeking or hiding, and that your device holds one of the room's places.
           </li>
           <li>
             <b>If you sign in</b> (needed only to publish, like or comment), with an emailed code or with

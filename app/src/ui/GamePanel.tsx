@@ -11,15 +11,21 @@ import {
   lookupGame,
   type GameLookup,
   type LocalGame,
+  type RoomPass,
   type RosterEntry,
 } from '../live/room';
 import type { LiveStatus } from '../live/useLiveLocations';
 import type { Peer } from '../live/share';
+import { getCachedEntitlement } from '../payments/entitlement';
+import { PRODUCTS } from '../payments/products';
+import { BuyRoom } from './PaywallModal';
+import { formatTimeLeft } from './time';
 
 /**
- * The game room: create a game or join one with its code, pick a team, and
- * see who is in it. Being in a game is what turns on live location sharing —
- * seekers send, the hider only watches.
+ * The game room: join one with its code (or buy one), pick a team, and see
+ * who is in it. Being in a game is what turns on live location sharing —
+ * seekers send, the hider only watches — and a place in a paid room is
+ * what lets this phone play (0015_room_passes.sql).
  */
 export function GamePanel(props: {
   game: LocalGame | null;
@@ -53,17 +59,22 @@ function Lobby(props: { onGame: (g: LocalGame) => void }) {
   const [found, setFound] = useState<GameLookup | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [developer, setDeveloper] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    getCachedEntitlement().then((e) => { if (!cancelled) setDeveloper(e?.product === 'developer'); });
     // The name this device last played under, if any.
     idbGet<{ displayName?: string }>('sync/profile').then((p) => {
       if (!cancelled && p?.displayName) setName((n) => n || p.displayName!);
     });
-    entitledGameCode().then((c) => {
+    // A room this phone just bought: show it, ready to join.
+    entitledGameCode().then(async (c) => {
       if (cancelled || !c) return;
       setFromPass(c);
       setCode((cur) => cur || c);
+      const res = await lookupGame(c);
+      if (!cancelled && res.ok) setFound((cur) => cur ?? res.value);
     });
     return () => { cancelled = true; };
   }, []);
@@ -94,8 +105,8 @@ function Lobby(props: { onGame: (g: LocalGame) => void }) {
     <div className="pad gameroom">
       <h2>Game</h2>
       <p className="muted">
-        Put every player's phone in the same game and the seekers' live positions show on
-        everyone's map. The hider's position is never sent.
+        Put every player's phone in the same game room: everyone in a paid room can play, and the
+        seekers' live positions show on everyone's map. The hider's position is never sent.
       </p>
 
       <label className="field">
@@ -118,13 +129,15 @@ function Lobby(props: { onGame: (g: LocalGame) => void }) {
         />
         <button disabled={busy || code.trim().length < 6} onClick={find}>Find game</button>
       </div>
-      {fromPass && code === fromPass && !found && (
-        <p className="muted small">Your pass was issued for game {fromPass}.</p>
+      {fromPass && code === fromPass && (
+        <p className="muted small">This is the room you bought. Join it, then send the code to everyone playing.</p>
       )}
 
       {found && (
         <div className="hint fact">
           <p className="small">Game {found.joinCode} — pick your team.</p>
+          <p className="small">{passLine(found.pass)}</p>
+          {!canJoin(found.pass) && <p className="warntext">{whyNot(found.pass)}</p>}
           {!named && <p className="warntext">Enter your name above first.</p>}
           <ul className="list">
             {found.teams.map((t) => (
@@ -132,14 +145,14 @@ function Lobby(props: { onGame: (g: LocalGame) => void }) {
                 <span className="grow">
                   {t.name} <span className="muted small">· {t.members} player{t.members === 1 ? '' : 's'}</span>
                 </span>
-                <button disabled={busy || !named} onClick={() => run(() => joinGame(found.joinCode, name, { id: t.id }))}>
+                <button disabled={busy || !named || !canJoin(found.pass)} onClick={() => run(() => joinGame(found.joinCode, name, { id: t.id }))}>
                   Join
                 </button>
               </li>
             ))}
             <li>
               <input type="text" className="grow" value={teamName} maxLength={40} placeholder="Or a new team's name" onChange={(e) => setTeamName(e.target.value)} />
-              <button disabled={busy || !named || !teamNamed} onClick={() => run(() => joinGame(found.joinCode, name, { name: teamName }))}>
+              <button disabled={busy || !named || !teamNamed || !canJoin(found.pass)} onClick={() => run(() => joinGame(found.joinCode, name, { name: teamName }))}>
                 Add team
               </button>
             </li>
@@ -147,7 +160,14 @@ function Lobby(props: { onGame: (g: LocalGame) => void }) {
         </div>
       )}
 
-      {!found && (
+      {!found && !developer && (
+        <>
+          <h3>Or buy a room</h3>
+          <BuyRoom />
+        </>
+      )}
+
+      {!found && developer && (
         <>
           <h3>Or start a new one</h3>
           <div className="row">
@@ -156,7 +176,10 @@ function Lobby(props: { onGame: (g: LocalGame) => void }) {
               Create game
             </button>
           </div>
-          <p className="muted small">You get a code to send to everyone else playing.</p>
+          <p className="muted small">
+            You get a code to send to everyone else playing. A developer's room has no pass: it shares
+            positions and chat, and each player still needs their own way to play.
+          </p>
         </>
       )}
 
@@ -175,13 +198,17 @@ function Room(props: {
   const { game, peers, status, hasPosition } = props;
   const role = useGame((s) => s.role);
   const [roster, setRoster] = useState<RosterEntry[] | null>(null);
+  const [pass, setPass] = useState<RoomPass | null>(null);
 
   // Who is in the game changes rarely and is not worth a subscription; a slow
   // poll while the panel is open is plenty. Roles ride along, so a role
   // change on this device is in the key.
   useEffect(() => {
     let cancelled = false;
-    const load = () => gameRoster(game.gameId).then((r) => { if (!cancelled && r) setRoster(r); });
+    const load = () => {
+      gameRoster(game.gameId).then((r) => { if (!cancelled && r) setRoster(r); });
+      lookupGame(game.joinCode).then((r) => { if (!cancelled && r.ok) setPass(r.value.pass); });
+    };
     load();
     const t = window.setInterval(load, 15_000);
     return () => { cancelled = true; window.clearInterval(t); };
@@ -208,6 +235,7 @@ function Room(props: {
         <strong>{game.joinCode}</strong>
         <span className="muted small">Everyone playing enters this on the Game tab.</span>
       </div>
+      {pass && <p className="small">{passLine(pass)}</p>}
 
       <p className={`hint ${sharingTone(role, status, hasPosition)}`}>
         {sharingLine(role, status, hasPosition)}
@@ -270,4 +298,27 @@ function sharingLine(role: 'seeker' | 'hider', status: LiveStatus, hasPosition: 
 function sharingTone(role: 'seeker' | 'hider', status: LiveStatus, hasPosition: boolean): string {
   if (status !== 'live') return 'warn';
   return role === 'seeker' && !hasPosition ? 'warn' : 'fact';
+}
+
+/** A room's pass and places, in one line. */
+function passLine(pass: RoomPass): string {
+  const places = `${pass.seatsTaken} of ${pass.maxSeats} places taken`;
+  if (pass.status === null) return `${places}. This room has no pass: it shares positions and chat only.`;
+  if (pass.status === 'unpaid') return 'This room’s payment hasn’t come through yet.';
+  const kind = pass.product ? PRODUCTS[pass.product].room : 'Paid room';
+  if (!pass.expiresAt) return `${kind} · ${places} · the clock starts at the first round.`;
+  const left = new Date(pass.expiresAt).getTime() - Date.now();
+  return left > 0 ? `${kind} · ${places} · ${formatTimeLeft(left)} left.` : `${places} · this room’s time is up.`;
+}
+
+/** Whether this phone can get in. One already holding a place always can; the server checks again. */
+function canJoin(pass: RoomPass): boolean {
+  return pass.seated || !whyNot(pass);
+}
+
+function whyNot(pass: RoomPass): string {
+  if (pass.status === 'unpaid') return 'If it was just bought, look it up again in a minute.';
+  if (pass.status === 'paid' && pass.expiresAt && new Date(pass.expiresAt).getTime() <= Date.now()) return 'This room’s time is up.';
+  if (pass.seatsTaken >= pass.maxSeats) return `This room is full: all ${pass.maxSeats} places are taken.`;
+  return '';
 }

@@ -511,6 +511,8 @@ export const useGame = create<State>()(
       },
     }),
     {
+      // Not the site's name (jetleg.pages.dev): the key every phone's rounds
+      // are saved under. Renaming it would lose them.
       name: 'jetleg-sf',
       storage: createJSONStorage(() => idbStorage),
       version: 3,

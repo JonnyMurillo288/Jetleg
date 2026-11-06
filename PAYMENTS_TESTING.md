@@ -107,7 +107,7 @@ that part exhaustively:
 5. `restore-entitlement` (the real edge function, not a stand-in) transfers
    an entitlement by email to a new device and the original device loses it
 6. An **admin grant** — a row inserted with `device_id` left `null`,
-   exactly what `grant-entitlement.ts` does for someone who hasn't opened
+   exactly what the old `grant-entitlement.ts` did for someone who hasn't opened
    the app yet — is invisible to every device until redeemed, and
    `restore-entitlement` binds it to whichever device first calls it with
    the matching email, with no code path specific to "this one had no
@@ -117,6 +117,18 @@ that part exhaustively:
    `check_and_activate_entitlement()`. And a plain device reading `games`
    directly gets zero rows back — that table has RLS enabled with no
    policies at all, closed by default, verified rather than assumed.
+8. **Game rooms** (`0015_room_passes.sql`, what is sold now): a room made
+   the way `stripe-checkout` makes it cannot be joined until it is marked
+   paid, and a client cannot mark it paid itself. Eight phones joining **at
+   the same instant** all get in, and a ninth is refused as full (this is
+   what caught a deadlock between the team insert's key-share lock and the
+   room lock). A place makes a phone eligible with no expiry until the
+   first round, which starts a 48-hour clock that a later round does not
+   restart. Leaving keeps the place and its pass, and frees nothing for
+   anyone else; neither does deleting the account. Places are unreadable
+   and unwritable from a phone. A non-developer cannot make a room for
+   nothing. Once a room's time is up its players are ineligible and nobody
+   new can join.
 
 ```bash
 npm run verify:sync
@@ -193,11 +205,15 @@ is no valid cache to fall back on, by design.
 Needs Jonny — none of this can be done by an agent:
 
 - A Stripe account (or the existing one), test mode to start
-- Two one-time Prices created in the dashboard: "72 hour pass" $0.99, "1
-  week pass" $3.50 — copy their Price IDs (`price_...`)
+- No Products or Prices to create: `stripe-checkout` sends the room's name
+  and price itself (`supabase/functions/_shared/stripe.ts` — $5 for 2 days,
+  $10 for a week, kept in step with `app/src/payments/products.ts`)
 - A webhook endpoint in the dashboard pointed at the deployed
   `stripe-webhook` function URL, subscribed to `checkout.session.completed`
-  — copy the signing secret
+  and `checkout.session.async_payment_succeeded` — copy the signing secret
+- Optional but worth it: Settings → Customer emails → *Successful payments*
+  on, so the buyer gets a receipt. The receipt carries the room code (it is
+  the payment's description), so a buyer who closes the tab still has it
 - Set the edge function secrets (works for both local `functions serve`
   via `--env-file` and the deployed cloud project via `supabase secrets set`):
 
@@ -205,13 +221,11 @@ Needs Jonny — none of this can be done by an agent:
 npx supabase secrets set \
   STRIPE_SECRET_KEY=sk_test_... \
   STRIPE_WEBHOOK_SECRET=whsec_... \
-  STRIPE_PRICE_SINGLE_GAME=price_... \
-  STRIPE_PRICE_WEEK_PASS=price_... \
-  APP_URL=https://jetleg-sf.pages.dev
+  APP_URL=https://jetleg.pages.dev
 ```
 
-- `npx supabase db push` to apply `0002_entitlements.sql` to the cloud project
-- `npx supabase functions deploy stripe-checkout stripe-webhook restore-entitlement`
+- `npx supabase db push` to apply the migrations (rooms are `0015_room_passes.sql`) to the cloud project
+- `npx supabase functions deploy stripe-checkout stripe-webhook`
 - Only once ready to take real money: switch `STRIPE_SECRET_KEY`/
   `STRIPE_WEBHOOK_SECRET` to live values and repeat the webhook-endpoint
   setup against the live dashboard (test and live webhooks are separate).

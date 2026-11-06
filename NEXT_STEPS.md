@@ -129,7 +129,7 @@ In order. Each is a decision or a piece of setup, not just code.
    `onResume`, which reopens ended rounds and puts their board back.
 2. **Create the cloud Supabase project.** A dev copy first is a good
    rehearsal: [QUICKSTART_DEV.md](QUICKSTART_DEV.md) walks through every step
-   for `dev.jetleg-sf.pages.dev`. For production, the same steps, and `npx supabase db push`
+   for `dev.jetleg.pages.dev`. For production, the same steps, and `npx supabase db push`
    (migrations 0001–0011) and `npx supabase functions deploy`. In its dashboard, under Authentication:
    - anonymous sign-ins **on**; "Confirm email" **on** — without it anyone can
      claim any address unverified, which would defeat both the publishing

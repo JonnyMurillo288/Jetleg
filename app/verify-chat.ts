@@ -91,7 +91,9 @@ const send = (ch: RealtimeChannel, event: string, payload: unknown) => ch.send({
   const seeker2 = await device();
   const hider = await device();
   const outsider = await device();
-  const created = await seeker.client.rpc('create_game', { display_name: 'Sam', team_name: 'Blue' });
+  const { data: room } = await admin.from('games')
+    .insert({ pass_status: 'paid', pass_product: 'room_2day', duration_s: 48 * 3600 }).select('join_code').single();
+  const created = await seeker.client.rpc('join_game', { code: room!.join_code, display_name: 'Sam', team_name: 'Blue' });
   const gameId: string = created.data.game_id;
   await seeker2.client.rpc('join_game', { code: created.data.join_code, display_name: 'Alex', team_id: created.data.team_id });
   await hider.client.rpc('join_game', { code: created.data.join_code, display_name: 'Hana', team_name: 'Red' });

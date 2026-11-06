@@ -37,10 +37,10 @@
     "time:osm": "tsx scripts/time-osm.ts",
     "phone": "HTTPS=1 vite --host",
     "tunnel": "npm run build && node scripts/tunnel.mjs",
-    "deploy": "npm run build && npx wrangler pages deploy dist --project-name jetleg-sf --branch production && sleep 6 && node scripts/check-deploy.mjs https://jetleg-sf.pages.dev",
+    "deploy": "npm run build && npx wrangler pages deploy dist --project-name jetleg --branch production && sleep 6 && node scripts/check-deploy.mjs https://jetleg.pages.dev",
     "verify:live": "node scripts/check-deploy.mjs",
     "build:dev": "tsc -b && vite build --mode dev && node scripts/check-build.mjs && node scripts/check-backend.mjs .env.dev.local",
-    "deploy:dev": "npm run build:dev && npx wrangler pages deploy dist --project-name jetleg-sf --branch dev && sleep 6 && node scripts/check-deploy.mjs https://dev.jetleg-sf.pages.dev"
+    "deploy:dev": "npm run build:dev && npx wrangler pages deploy dist --project-name jetleg --branch dev && sleep 6 && node scripts/check-deploy.mjs https://dev.jetleg.pages.dev"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",

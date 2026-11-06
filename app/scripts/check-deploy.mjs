@@ -15,7 +15,7 @@
  * `wrangler pages deploy` started inferring the git branch and quietly
  * publishing previews instead of production.
  *
- *   npm run verify:live https://jetleg-sf.pages.dev
+ *   npm run verify:live https://jetleg.pages.dev
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

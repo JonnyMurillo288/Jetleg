@@ -1,14 +1,18 @@
 import type Stripe from 'npm:stripe@17';
 import { getServiceClient } from '../_shared/supabase.ts';
-import { stripe, DURATION_S, isProduct } from '../_shared/stripe.ts';
+import { stripe } from '../_shared/stripe.ts';
 
 const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET')!;
 
 /**
- * The only thing in this codebase that ever writes an entitlement row.
+ * The only thing in this codebase that ever marks a game room paid.
  * Authenticity comes entirely from Stripe's signature, never from a
  * Supabase auth header -- Stripe's servers call this directly, so
  * verify_jwt is off for this function in supabase/config.toml.
+ *
+ * A card payment is paid when the session completes; a slower method
+ * (a bank debit) completes 'unpaid' and is paid when
+ * async_payment_succeeded arrives.
  */
 Deno.serve(async (req) => {
   const signature = req.headers.get('Stripe-Signature');
@@ -22,28 +26,26 @@ Deno.serve(async (req) => {
     return new Response(`signature verification failed: ${e}`, { status: 400 });
   }
 
-  if (event.type === 'checkout.session.completed') {
+  if (event.type === 'checkout.session.completed' || event.type === 'checkout.session.async_payment_succeeded') {
     const session = event.data.object as Stripe.Checkout.Session;
-    const deviceId = session.metadata?.device_id;
-    const product = session.metadata?.product;
+    const gameId = session.metadata?.game_id;
 
-    if (deviceId && isProduct(product)) {
+    if (gameId && session.payment_status === 'paid') {
       const supabase = getServiceClient();
-      // upsert + ignoreDuplicates on the unique stripe_session_id is the
-      // idempotency guard: Stripe redelivers webhooks at-least-once, and
-      // this must never grant a second window for the same payment.
-      const { error } = await supabase.from('entitlements').upsert(
-        {
-          device_id: deviceId,
-          product,
-          duration_s: DURATION_S[product],
+      // Only an unpaid room moves, and only the one this session created:
+      // Stripe redelivers webhooks at-least-once, and a redelivery must
+      // change nothing.
+      const { error } = await supabase
+        .from('games')
+        .update({
+          pass_status: 'paid',
           stripe_session_id: session.id,
-          stripe_customer_email: session.customer_details?.email ?? null,
-        },
-        { onConflict: 'stripe_session_id', ignoreDuplicates: true },
-      );
+          buyer_email: session.customer_details?.email ?? null,
+        })
+        .eq('id', gameId)
+        .eq('pass_status', 'unpaid');
       if (error) {
-        console.error('entitlement insert failed', error);
+        console.error('marking the room paid failed', error);
         return new Response('db error', { status: 500 });
       }
     }

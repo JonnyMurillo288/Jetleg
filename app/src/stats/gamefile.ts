@@ -15,6 +15,7 @@ import type { Round } from '../store/game';
  * out and counted, rather than handed on to code that would trip over it.
  */
 
+/** Kept from before the site was jetleg.pages.dev: every game file already saved says this. */
 export const GAME_FILE_APP = 'jetleg-sf';
 export const GAME_FILE_VERSION = 1;
 

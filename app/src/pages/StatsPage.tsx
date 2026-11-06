@@ -166,7 +166,7 @@ export function StatsPage() {
         <>
           {list(rounds, 'device')}
           <div className="row pagebuttons">
-            <button onClick={async () => saveTextFile(`jetleg-sf-${new Date().toISOString().slice(0, 10)}.json`, await withChats(exportJSON()))}>
+            <button onClick={async () => saveTextFile(`jetleg-${new Date().toISOString().slice(0, 10)}.json`, await withChats(exportJSON()))}>
               Save all {plural(rounds.length, 'round')} to a file
             </button>
           </div>

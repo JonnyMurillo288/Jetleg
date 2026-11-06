@@ -1,7 +1,7 @@
 import { del as idbDel, get as idbGet, set as idbSet } from 'idb-keyval';
 import { supabase } from '../sync/client';
 import { getOrCreateDeviceId } from '../sync/identity';
-import type { Product } from './products';
+import { isProduct, type LegacyProduct, type Product } from './products';
 
 export type { Product } from './products';
 
@@ -10,13 +10,15 @@ const CACHE_KEY = 'payments/entitlement';
 export type CachedEntitlement = {
   eligible: boolean;
   /** 'developer' is not for sale: it is what a listed developer's sign-in reports (0007_developers.sql). */
-  product: Product | 'developer' | null;
-  expiresAt: string | null; // ISO, device's own clock compares it
-  /** Which game this token belongs to, if the admin who granted it (or,
-   * later, the purchase flow) scoped it to one. Not surfaced in any UI
-   * yet — plumbed through so it's there when shared-game features exist. */
+  product: Product | LegacyProduct | 'developer' | null;
+  /** ISO, device's own clock compares it. Null for a room whose clock has not started yet. */
+  expiresAt: string | null;
+  /** The game room this pass is a place in (0015_room_passes.sql), or the game a granted per-device pass named. */
   gameId: string | null;
 };
+
+/** Fired on `window` whenever the cached pass changes, so what shows it need not wait for its next poll. */
+export const ENTITLEMENT_EVENT = 'jetleg:entitlement';
 
 const INELIGIBLE: CachedEntitlement = { eligible: false, product: null, expiresAt: null, gameId: null };
 
@@ -40,9 +42,14 @@ async function functionErrorMessage(error: unknown): Promise<string> {
   return (error as { message?: string })?.message ?? 'Request failed.';
 }
 
-/** Pure so it's testable with no IndexedDB involved. */
+/**
+ * Pure so it's testable with no IndexedDB involved. A room with no expiry
+ * yet is one whose clock starts at its first round; starting that round
+ * goes through `startRoomClock`, which needs the server.
+ */
 export function isStillValid(cached: CachedEntitlement | null | undefined, nowMs: number): boolean {
-  if (!cached?.eligible || !cached.expiresAt) return false;
+  if (!cached?.eligible) return false;
+  if (!cached.expiresAt) return isProduct(cached.product);
   return new Date(cached.expiresAt).getTime() > nowMs;
 }
 
@@ -61,6 +68,7 @@ export async function hasCachedValidEntitlement(): Promise<boolean> {
 /** Signing out leaves a device with no claim to the account's pass; see community/account.ts. */
 export async function forgetCachedEntitlement(): Promise<void> {
   await idbDel(CACHE_KEY);
+  window.dispatchEvent(new Event(ENTITLEMENT_EVENT));
 }
 
 export async function getCachedEntitlement(): Promise<CachedEntitlement | null> {
@@ -68,21 +76,22 @@ export async function getCachedEntitlement(): Promise<CachedEntitlement | null> 
 }
 
 /**
- * The real check: activates the device's oldest pending purchase on first
- * use and reports eligibility, via the security-definer RPC in
- * 0002_entitlements.sql. Never trust this function's return value as the
+ * The real check: reports eligibility via the security-definer RPC
+ * (0002_entitlements.sql, now 0015_room_passes.sql). With `startClock`, a
+ * room this device has a place in whose clock has not started starts it
+ * now. Never trust this function's return value as the
  * security boundary from the client's own side — the RPC is what actually
  * enforces it, this just reflects the answer back into the UI and the
  * offline cache.
  */
-export async function checkEntitlement(): Promise<CachedEntitlement> {
+export async function checkEntitlement(startClock = false): Promise<CachedEntitlement> {
   if (!supabase) return INELIGIBLE;
 
   const deviceId = await getOrCreateDeviceId();
   if (!deviceId) return INELIGIBLE;
 
   const { data, error } = await supabase
-    .rpc('check_and_activate_entitlement')
+    .rpc('check_and_activate_entitlement', { start_clock: startClock })
     .single<{ eligible: boolean; product: string | null; expires_at: string | null; game_id: string | null }>();
   if (error || !data) return INELIGIBLE;
 
@@ -93,12 +102,30 @@ export async function checkEntitlement(): Promise<CachedEntitlement> {
     gameId: data.game_id ?? null,
   };
   await idbSet(CACHE_KEY, result);
+  window.dispatchEvent(new Event(ENTITLEMENT_EVENT));
   return result;
 }
 
-/** Redirects to a Stripe Checkout session for the given product. */
+/**
+ * Called just before a round starts, or an ended one is reopened. A room's
+ * clock starts at its first round, not when it was bought, so this is where
+ * it starts. Returns why play cannot begin, or null.
+ */
+export async function startRoomClock(): Promise<string | null> {
+  const cached = await getCachedEntitlement();
+  if (!cached?.eligible || cached.expiresAt) return null;
+  const started = await checkEntitlement(true);
+  if (started.eligible && started.expiresAt) return null;
+  return started.eligible || !navigator.onLine
+    ? 'Starting the game room’s clock needs a connection. Try again with signal.'
+    : 'This phone has no place in a game room with time left.';
+}
+
+/** Redirects to a Stripe Checkout session that buys a game room. */
 export async function startCheckout(product: Product): Promise<{ error?: string }> {
   if (!supabase) return { error: 'Payments are not configured.' };
+  // Checkout is tied to this phone's account; make sure it has one.
+  if (!(await getOrCreateDeviceId())) return { error: 'Could not reach the game server. Check your connection.' };
 
   const { data, error } = await supabase.functions.invoke<{ url?: string; error?: string }>(
     'stripe-checkout',
@@ -108,28 +135,4 @@ export async function startCheckout(product: Product): Promise<{ error?: string 
 
   window.location.href = data.url;
   return {};
-}
-
-/** Re-binds the most recent still-usable purchase under `email` to this device. */
-export async function restorePurchase(email: string): Promise<{ restored: boolean; error?: string }> {
-  if (!supabase) return { restored: false, error: 'Payments are not configured.' };
-
-  const { data, error } = await supabase.functions.invoke<{
-    restored: boolean;
-    product?: Product;
-    expiresAt?: string;
-    gameId?: string | null;
-    error?: string;
-  }>('restore-entitlement', { body: { email } });
-
-  if (error) return { restored: false, error: await functionErrorMessage(error) };
-  if (!data?.restored) return { restored: false };
-
-  await idbSet(CACHE_KEY, {
-    eligible: true,
-    product: data.product ?? null,
-    expiresAt: data.expiresAt ?? null,
-    gameId: data.gameId ?? null,
-  } satisfies CachedEntitlement);
-  return { restored: true };
 }

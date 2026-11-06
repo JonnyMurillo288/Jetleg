@@ -35,7 +35,60 @@ tool back to `'off'` if `canMeasure` flips false while it's armed
 (round ends mid-measurement), so a hidden "Done" button can never leave a
 tap silently swallowed by a tool with no visible way to release it.
 
-## What's sold, and the security boundary
+## What's sold now: game rooms (`0015_room_passes.sql`, 6 Nov 2026)
+
+Jonny replaced per-device passes with **game rooms**: $5 for 2 days
+(`room_2day`), $10 for a week (`room_week`), up to 8 accounts per room,
+unlimited rounds while it runs. The per-device sections further down describe
+the older model, which still works for any pass already held but is no longer
+sold.
+
+- **A room is a `games` row** (the same table 0004/0005 use for live
+  positions and chat), with `pass_status` (`null` = no pass, a developer's
+  or a pre-0015 room; `'unpaid'`; `'paid'`), `pass_product`, `duration_s`,
+  `max_seats` (8), `started_at`/`expires_at`, `stripe_session_id`,
+  `buyer_email`.
+- **Places are `room_seats`** (game, device = `auth.uid()`). They are taken
+  by `take_seat_()` inside `enter_game_()`, so `join_game` and `create_game`
+  both go through it. **A place is never given back:** `leave_game` leaves
+  it alone, and `device_id ... on delete set null` keeps a deleted account's
+  place counted. That is the anti-sharing rule. RLS on, no policies.
+- **The lock is `for no key update`, not `for update`.** `join_game` with a
+  new team inserts a `teams` row first, whose FK takes a key-share lock on
+  the same `games` row. Two concurrent joins each holding that share and
+  each asking `for update` deadlock. Caught only by joining eight phones
+  with `Promise.all` in `verify-payments.ts`; sequential joins never show it.
+- **The clock starts at the first round.** `check_and_activate_entitlement(start_clock
+  boolean default false)` reports a seated, paid, unstarted room as
+  eligible with `expires_at` null. The app calls it with `start_clock: true`
+  only from `startRoomClock()` (`payments/entitlement.ts`), which RoundGate's
+  Start button and `App.resumeRound` (ended rounds) call first. App load
+  never starts a clock. `isStillValid` treats a room product with no expiry
+  as valid. The function uses `#variable_conflict use_column`, because its
+  OUT params share names with columns of both tables.
+- **Checkout creates the room first, `'unpaid'`** (`stripe-checkout`), so the
+  code is on the Checkout page (`custom_text.submit`) and in the receipt
+  (`payment_intent_data.description`). Only `stripe-webhook` flips it to
+  `'paid'`, matching `metadata.game_id` and `pass_status = 'unpaid'`
+  (idempotent under redelivery), on `checkout.session.completed` with
+  `payment_status = 'paid'` or on `async_payment_succeeded`. Prices are
+  inline `price_data`, so there are no Stripe Price ids or `STRIPE_PRICE_*`
+  secrets. An abandoned checkout leaves an unpaid room nobody can join.
+- `create_game` is **developers only** now. Everyone else buys a room, and
+  the Game tab's lobby shows `BuyRoom` (`ui/PaywallModal.tsx`) where
+  "Create game" used to be.
+- `entitled_game_code()` offers the buyer's own room first (paid or still
+  unpaid, not expired), so the Game tab shows it ready to join after
+  Checkout. `lookup_game` carries the pass and the place counts plus
+  `seated`, and the Room view polls it for "3 of 8 places taken · 1 d 4 h
+  left".
+- Admin comps: `app/grant-room.ts <room_2day|room_week>` inserts a paid
+  room with no buyer. `grant-entitlement.ts` is gone.
+- Verified in `verify-payments.ts`'s rooms section. `verify-room.ts`,
+  `verify-chat.ts` and `verify-room-ui.cjs` make their room with the
+  service role, the way the webhook leaves it.
+
+## What was sold before rooms, and the security boundary
 
 - **$0.99** → a 72-hour window (`single_game`); **$3.50** → a 7-day window
   (`week_pass`). One-time Stripe Checkout payments, not subscriptions.

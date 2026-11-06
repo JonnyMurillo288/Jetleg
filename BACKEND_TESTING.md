@@ -235,7 +235,7 @@ without touching the live site:
 ```bash
 cd app
 npm run build
-npx wrangler pages deploy dist --project-name jetleg-sf --branch backend-game-history
+npx wrangler pages deploy dist --project-name jetleg --branch backend-game-history
 ```
 
 **Never omit `--branch`, and never pass `production`.** This is the exact
@@ -245,23 +245,23 @@ when it's not pinned, and a bare `npm run deploy` is hardcoded to
 The command above publishes to:
 
 ```
-https://backend-game-history.jetleg-sf.pages.dev   ← stable alias, use this one
-https://<hash>.jetleg-sf.pages.dev                  ← this specific deployment
+https://backend-game-history.jetleg.pages.dev   ← stable alias, use this one
+https://<hash>.jetleg.pages.dev                  ← this specific deployment
 ```
 
-`https://jetleg-sf.pages.dev` (the apex, the URL players actually use) is
+`https://jetleg.pages.dev` (the apex, the URL players actually use) is
 untouched by a non-`production`-branch deploy. Confirm it rather than
 trusting that: fetch it before and after and diff the asset hash —
 
 ```bash
-curl -s https://jetleg-sf.pages.dev/ | grep -o 'assets/index-[A-Za-z0-9_-]*\.js'
+curl -s https://jetleg.pages.dev/ | grep -o 'assets/index-[A-Za-z0-9_-]*\.js'
 ```
 
 should print the same hash both times. Then check the preview itself at the
 layer that actually fails:
 
 ```bash
-npm run verify:live https://backend-game-history.jetleg-sf.pages.dev
+npm run verify:live https://backend-game-history.jetleg.pages.dev
 ```
 
 Open that URL on a phone, add to home screen, grant location, play a real
@@ -301,9 +301,9 @@ between test runs.
 
 **Worried a preview deploy touched the live site.** It didn't, as long as
 `--branch` was passed and wasn't `production` — but don't take that on
-faith. Diff `jetleg-sf.pages.dev`'s asset hash from before the deploy (see
+faith. Diff `jetleg.pages.dev`'s asset hash from before the deploy (see
 §6); if it changed, something deployed to `production` when it shouldn't
-have. `npx wrangler pages deployment list --project-name jetleg-sf` shows
+have. `npx wrangler pages deployment list --project-name jetleg` shows
 every deployment and which branch/environment each landed on.
 
 **`wrangler pages deploy` warns about uncommitted changes.** Expected and

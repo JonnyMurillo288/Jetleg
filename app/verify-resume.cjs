@@ -132,7 +132,7 @@ async function toGame(p) {
     await resumeRow(p, 'Ended round');
     await p.waitForTimeout(800);
     const sheet = await p.textContent('.sheet');
-    check('without a pass, reopening an ended round asks for one, as starting does', /Unlock JetLeg SF/.test(sheet) && (await p.$('.qrow')) === null);
+    check('without a pass, reopening an ended round asks for one, as starting does', /Play in a game room/.test(sheet) && (await p.$('.qrow')) === null);
     check('no page errors (no pass)', errors.length === 0, errors);
     await ctx.close();
   }

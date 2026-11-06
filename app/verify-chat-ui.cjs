@@ -174,7 +174,7 @@ async function startRound(pl, role, email) {
   await clickText(pl.p, 'I have a testing code');
   await pl.p.fill('.accountbox input.code', TEST_CODE);
   await clickText(pl.p, '^Sign in$');
-  await pl.p.waitForFunction(() => !/Unlock JetLeg SF/.test(document.querySelector('.sheet')?.textContent || ''), null, { timeout: 20000 });
+  await pl.p.waitForFunction(() => !/Play in a game room/.test(document.querySelector('.sheet')?.textContent || ''), null, { timeout: 20000 });
   await clickText(pl.p, 'Start a new round');
 }
 

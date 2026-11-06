@@ -35,7 +35,7 @@ npm run deploy
 You get:
 
 ```
-✨ Deployment complete! https://jetleg-sf.pages.dev
+✨ Deployment complete! https://jetleg.pages.dev
 ```
 
 That URL is live, world-readable and permanent. Send it to the other players —
@@ -115,7 +115,7 @@ npm run deploy
 was incomplete. You can run that check on its own at any time:
 
 ```bash
-npm run verify:live https://jetleg-sf.pages.dev
+npm run verify:live https://jetleg.pages.dev
 ```
 
 This matters more than it sounds. **Cloudflare Pages answers a request for a
@@ -206,7 +206,7 @@ never added to the home screen. Use the export button on the round screen to
 keep a JSON backup.
 
 **Deploy fails with a project-name conflict.** Someone already has
-`jetleg-sf.pages.dev`. Pick another name in the `deploy` script.
+`jetleg.pages.dev`. Pick another name in the `deploy` script.
 
 **`npx wrangler login` won't open a browser** (headless machine). Use
 `npx wrangler login --browser false` and paste the printed URL somewhere with a

@@ -26,7 +26,7 @@ import { RoundGate } from './ui/RoundGate';
 import { Diagnostics } from './ui/Diagnostics';
 import { ResultsPanel } from './ui/ResultsPanel';
 import { GamePanel } from './ui/GamePanel';
-import { checkEntitlement, hasCachedValidEntitlement } from './payments/entitlement';
+import { checkEntitlement, hasCachedValidEntitlement, startRoomClock } from './payments/entitlement';
 import { loadGame, type LocalGame } from './live/room';
 import { useLiveLocations } from './live/useLiveLocations';
 import { buildPeersFc, pickFollowed, type SharePosition } from './live/share';
@@ -94,6 +94,11 @@ export default function App() {
    */
   const resumeRound = async (r: Round): Promise<string | null> => {
     if (!base) return 'The board is still loading.';
+    // Reopening an ended round is playing again: a game room's clock starts here too.
+    if (r.endedAt) {
+      const stopped = await startRoomClock();
+      if (stopped) return stopped;
+    }
     const want = r.board;
     if (!sameBoard(want, stampOf(activeMap))) {
       if (!want) {
@@ -290,6 +295,8 @@ export default function App() {
     // check the real state."
     const params = new URLSearchParams(window.location.search);
     if (params.has('checkout')) {
+      // A room was just bought: the Game tab is where its code is, to join and send on.
+      if (params.get('checkout') === 'success') setTab('game');
       params.delete('checkout');
       const rest = params.toString();
       // The hash is the page (route.ts): dropping it here would send a reload to the landing page.
@@ -320,6 +327,11 @@ export default function App() {
     });
     return () => { cancelled = true; sub?.data.subscription.unsubscribe(); };
   }, []);
+
+  // Joining a game room takes a place in it, and a place in a paid room is a pass.
+  useEffect(() => {
+    if (game) refreshEntitlement();
+  }, [game?.gameId]);
 
   /**
    * Project every layer once, while the map is still settling.
@@ -573,7 +585,7 @@ export default function App() {
             hasPosition={!!origin}
           />
         ) : !round || round.endedAt ? (
-          <RoundGate canStart={entitled === true} onRestored={refreshEntitlement} onResume={resumeRound} />
+          <RoundGate canStart={entitled === true} onOpenGame={() => setTab('game')} onResume={resumeRound} />
         ) : role === 'seeker' ? (
           <SeekerPanel
             data={data}

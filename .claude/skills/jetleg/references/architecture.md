@@ -314,11 +314,12 @@ game.** No asks, no answers, no round state.
 
 ### The room
 
-A game has a six-character `join_code` — the game token. One player creates
-a game (and their team) on the **Game** button in the GPS row; everyone else
-enters the code, then joins a listed team or adds one. A pass granted with
-`grant-entitlement.ts` already carries a `game_id`, so the app offers that
-game's code pre-filled (`entitled_game_code()`).
+A game has a six-character `join_code` — the game token. Rooms are bought
+(`0015_room_passes.sql`, see `payments.md`): the buyer comes back from Checkout
+to the **Game** tab with their room's code pre-filled (`entitled_game_code()`);
+everyone enters the code, then joins a listed team or adds one. Joining takes
+one of the room's eight places, for good. Only developers can create a room
+for nothing (`create_game`).
 
 Membership lives in `game_members`, and is written **only** by
 security-definer functions (`create_game`, `join_game`, `set_game_role`,
@@ -777,6 +778,6 @@ Two guards exist because both failure modes are silent:
   `index.html`, so a half-uploaded site passes every ordinary check while being
   completely broken.
 
-Hosting: Cloudflare Pages, `jetleg-sf.pages.dev`. `public/_headers` makes
+Hosting: Cloudflare Pages, `jetleg.pages.dev`. `public/_headers` makes
 `sw.js` and `index.html` always revalidate so a new deploy reaches an installed
 PWA, while hashed assets are immutable.

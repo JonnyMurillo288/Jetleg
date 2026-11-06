@@ -3,7 +3,7 @@
 // running Supabase (local by default) and asserts at the layer that matters:
 // what actually arrives on another device's socket, and what does not.
 //
-//   seeker  — creates the game, broadcasts its position
+//   seeker  — first into a bought room, broadcasts its position
 //   hider   — joins with the code; must receive the seeker, must be unable to send
 //   outsider — signed in, not in the game; must receive nothing and get in nowhere
 //
@@ -17,6 +17,11 @@ const url = process.env.SUPABASE_URL || 'http://127.0.0.1:54321';
 const anonKey =
   process.env.SUPABASE_ANON_KEY ||
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0';
+
+// Fixed local-only demo key; rooms are bought, so one is made the way stripe-webhook leaves it.
+const serviceKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU';
 
 const fail: string[] = [];
 const check = (name: string, ok: boolean, detail?: unknown) => {
@@ -59,8 +64,10 @@ const hiderSpot: [number, number] = [-122.4477, 37.7694]; // must never arrive a
   const outsider = await device();
 
   // ---- the room
-  const created = await seeker.client.rpc('create_game', { display_name: 'Sam Seeker', team_name: 'Blue' });
-  check('a device can create a game and gets a code', !created.error && /^[A-HJ-NP-Z2-9]{6}$/.test(created.data?.join_code ?? ''), created.error?.message ?? created.data?.join_code);
+  const { data: room } = await createClient(url, serviceKey).from('games')
+    .insert({ pass_status: 'paid', pass_product: 'room_2day', duration_s: 48 * 3600 }).select('join_code').single();
+  const created = await seeker.client.rpc('join_game', { code: room!.join_code, display_name: 'Sam Seeker', team_name: 'Blue' });
+  check('a device joins a bought room with its code', !created.error && /^[A-HJ-NP-Z2-9]{6}$/.test(created.data?.join_code ?? ''), created.error?.message ?? created.data?.join_code);
   const gameId: string = created.data.game_id;
   const code: string = created.data.join_code;
 

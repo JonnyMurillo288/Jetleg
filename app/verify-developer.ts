@@ -167,7 +167,7 @@ async function codeFor(email: string): Promise<string> {
   await p.waitForTimeout(2500);
   await click('Start a new round');
   await p.waitForSelector('.accountbox', { timeout: 10000 });
-  check('a fresh device meets the paywall, with a way in for developers', /Unlock JetLeg SF/.test((await p.textContent('.sheet')) ?? '') && /Developer or tester/.test((await p.textContent('.sheet')) ?? ''));
+  check('a fresh device meets the paywall, with a way in for developers', /Play in a game room/.test((await p.textContent('.sheet')) ?? '') && /Developer or tester/.test((await p.textContent('.sheet')) ?? ''));
 
   await p.fill('.accountbox input[type="email"]', uiEmail);
   await click(testCode ? 'I have a testing code' : 'Email me a code');
@@ -175,7 +175,7 @@ async function codeFor(email: string): Promise<string> {
   await p.fill('.accountbox input.code', testCode || (await codeFor(uiEmail)));
   await click('^Sign in$');
   // The paywall goes away on its own once the sign-in is seen to be entitled.
-  const unlocked = await p.waitForFunction(() => !/Unlock JetLeg SF/.test(document.querySelector('.sheet')?.textContent || ''), null, { timeout: 20000 }).then(() => true, () => false);
+  const unlocked = await p.waitForFunction(() => !/Play in a game room/.test(document.querySelector('.sheet')?.textContent || ''), null, { timeout: 20000 }).then(() => true, () => false);
   check('signing in with a listed email dismisses the paywall', unlocked);
   await click('Start a new round');
   const playing = await p.waitForSelector('.qrow', { timeout: 15000 }).then(() => true, () => false);

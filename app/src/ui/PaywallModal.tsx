@@ -1,21 +1,47 @@
 import { useState } from 'react';
-import { startCheckout, restorePurchase } from '../payments/entitlement';
-import { PRODUCTS, type Product } from '../payments/products';
+import { startCheckout } from '../payments/entitlement';
+import { PRODUCTS, ROOM_SEATS, type Product } from '../payments/products';
 import { useAccount } from '../community/account';
 import { AccountBox } from './AccountBox';
 
 /**
- * Shown in place of RoundGate when the device has no valid entitlement.
+ * Shown in place of RoundGate's Start button when the device has no pass.
+ * What is sold is a game room (0015_room_passes.sql): one person buys it,
+ * everyone else joins with its code on the Game tab.
  * There's no modal/overlay convention elsewhere in this app — this matches
  * RoundGate's own full-panel shape rather than inventing dialog CSS.
  */
-export function PaywallModal(props: { onRestored: () => void }) {
-  const [busy, setBusy] = useState<Product | 'restore' | null>(null);
+export function PaywallModal(props: { onOpenGame: () => void }) {
   const account = useAccount();
+
+  return (
+    <div className="pad">
+      <h2>Play in a game room</h2>
+      <p className="muted">
+        One person buys a room and sends its code. Up to {ROOM_SEATS} players join with it and play
+        as many rounds as they like until the room's time is up. The clock starts at the room's first
+        round, so it's fine to buy ahead of game day.
+      </p>
+
+      <h3>Have a room code?</h3>
+      <button className="primary big" onClick={props.onOpenGame}>Join a room on the Game tab</button>
+
+      <h3>Buy a room</h3>
+      <BuyRoom />
+
+      <h3>Developer or tester?</h3>
+      <AccountBox account={account} reason="Sign in with the email you were given access on. Nothing to pay." />
+      {account.state === 'signedIn' && (
+        <p className="small muted">This account has no developer access, so it still needs a place in a room.</p>
+      )}
+    </div>
+  );
+}
+
+/** The two rooms for sale. Also on the Game tab, where a room would otherwise be created. */
+export function BuyRoom() {
+  const [busy, setBusy] = useState<Product | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showRestore, setShowRestore] = useState(false);
-  const [email, setEmail] = useState('');
-  const [restoreMsg, setRestoreMsg] = useState<string | null>(null);
 
   const buy = async (product: Product) => {
     setBusy(product);
@@ -28,61 +54,19 @@ export function PaywallModal(props: { onRestored: () => void }) {
     }
   };
 
-  const restore = async () => {
-    if (!email.trim()) return;
-    setBusy('restore');
-    setRestoreMsg(null);
-    const res = await restorePurchase(email.trim());
-    setBusy(null);
-    if (res.error) setRestoreMsg(res.error);
-    else if (res.restored) {
-      setRestoreMsg('Restored — you can start a round now.');
-      props.onRestored();
-    } else {
-      setRestoreMsg('No usable purchase found for that email.');
-    }
-  };
-
   return (
-    <div className="pad">
-      <h2>Unlock JetLeg SF</h2>
-      <p className="muted">
-        Each device needs its own pass. The clock starts the moment you play, not
-        when you buy — so it's fine to buy ahead of game day.
-      </p>
-
-      <button className="primary big" disabled={busy !== null} onClick={() => buy('single_game')}>
-        {busy === 'single_game' ? 'Redirecting…' : `${PRODUCTS.single_game.label} — ${PRODUCTS.single_game.price}`}
-      </button>
-      <button className="primary big" disabled={busy !== null} onClick={() => buy('week_pass')}>
-        {busy === 'week_pass' ? 'Redirecting…' : `${PRODUCTS.week_pass.label} — ${PRODUCTS.week_pass.price}`}
-      </button>
-
+    <>
+      {(Object.keys(PRODUCTS) as Product[]).map((p) => (
+        <button key={p} className="primary big" disabled={busy !== null} onClick={() => buy(p)}>
+          {busy === p ? 'Redirecting…' : `${PRODUCTS[p].label} — ${PRODUCTS[p].price}`}
+        </button>
+      ))}
       {error && <p className="small" style={{ color: 'var(--no)' }}>{error}</p>}
-
-      <h3>Already paid on another device?</h3>
-      {!showRestore ? (
-        <button className="link" onClick={() => setShowRestore(true)}>Restore a purchase</button>
-      ) : (
-        <div className="row">
-          <input
-            type="email"
-            placeholder="Email used at checkout"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-          <button disabled={busy !== null} onClick={restore}>
-            {busy === 'restore' ? 'Checking…' : 'Restore'}
-          </button>
-        </div>
-      )}
-      {restoreMsg && <p className="small muted">{restoreMsg}</p>}
-
-      <h3>Developer or tester?</h3>
-      <AccountBox account={account} reason="Sign in with the email you were given access on. Nothing to pay." />
-      {account.state === 'signedIn' && (
-        <p className="small muted">This account has no developer access, so it still needs a pass.</p>
-      )}
-    </div>
+      <p className="small muted">
+        Up to {ROOM_SEATS} players, you included. Each phone that joins takes one of the places and keeps
+        it, even after leaving — a place can't be handed on to another phone. No sign-in needed. You get
+        the code at checkout.
+      </p>
+    </>
   );
 }

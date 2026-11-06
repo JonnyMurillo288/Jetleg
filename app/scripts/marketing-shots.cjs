@@ -177,7 +177,7 @@ async function round(browser) {
   await click(p, 'I have a testing code');
   await p.fill('.accountbox input.code', TEST_CODE);
   await click(p, '^Sign in$');
-  await p.waitForFunction(() => !/Unlock JetLeg/.test(document.querySelector('.sheet')?.textContent || ''), null, { timeout: 20000 });
+  await p.waitForFunction(() => !/Play in a game room/.test(document.querySelector('.sheet')?.textContent || ''), null, { timeout: 20000 });
   await click(p, 'Start a new round');
   await p.waitForSelector('.qrow', { timeout: 15000 });
 

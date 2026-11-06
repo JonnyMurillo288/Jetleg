@@ -4,7 +4,7 @@ import { isStillValid, type CachedEntitlement } from './entitlement';
 const NOW = Date.parse('2026-01-15T12:00:00Z');
 
 function entitlement(overrides: Partial<CachedEntitlement> = {}): CachedEntitlement {
-  return { eligible: true, product: 'single_game', expiresAt: '2026-01-16T12:00:00Z', gameId: null, ...overrides };
+  return { eligible: true, product: 'room_2day', expiresAt: '2026-01-16T12:00:00Z', gameId: null, ...overrides };
 }
 
 describe('isStillValid', () => {
@@ -17,8 +17,13 @@ describe('isStillValid', () => {
     expect(isStillValid(entitlement({ eligible: false }), NOW)).toBe(false);
   });
 
-  it('is false with no expiry recorded (never activated)', () => {
-    expect(isStillValid(entitlement({ expiresAt: null }), NOW)).toBe(false);
+  it('is true for a room whose clock has not started (it starts at the first round)', () => {
+    expect(isStillValid(entitlement({ expiresAt: null }), NOW)).toBe(true);
+  });
+
+  it('is false with no expiry for anything but a room', () => {
+    expect(isStillValid(entitlement({ product: 'week_pass', expiresAt: null }), NOW)).toBe(false);
+    expect(isStillValid(entitlement({ product: 'developer', expiresAt: null }), NOW)).toBe(false);
   });
 
   it('is true strictly before expiry, false strictly after', () => {

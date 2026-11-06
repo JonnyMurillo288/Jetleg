@@ -68,7 +68,7 @@ npm run verify:studio       # verify-studio-tools.cjs — the editor's tools: zo
 npm run verify:resume       # verify-resume.cjs — resuming rounds, ended ones included: the paywall, answers still applied, the round's own board put back (or refused, with why), Results' button, no hider pin on a seeker's map
 npm run verify:google       # verify-google.cjs — Google sign-in's round trip with Google stood in for: button only when on, link vs sign-in, return page, refusals
 npm run verify:flow         # verify-flow.cjs — the site around the game: landing picture, Start a game (city dropdown, flag, capped count, play), the stats page against a fixture file, a map page's address. Community steps SKIP without `supabase start`
-TARGET=https://jetleg-sf.pages.dev/ npm run verify:tools   # any suite, against a deployment
+TARGET=https://jetleg.pages.dev/ npm run verify:tools   # any suite, against a deployment
 ```
 
 Both browser harnesses need a server first: `npx vite preview --port 4310`.
@@ -124,13 +124,13 @@ the only way to see it. Never judge a deploy by status codes.
 
 **The production branch is `production`, not `main`.** Once this became a git
 repo, `wrangler pages deploy` began inferring the branch from git and publishing
-**previews**: wrangler reported success, `main.jetleg-sf.pages.dev` updated, and
-the apex `jetleg-sf.pages.dev` — the URL people actually open — kept serving the
+**previews**: wrangler reported success, `main.jetleg.pages.dev` updated, and
+the apex `jetleg.pages.dev` — the URL people actually open — kept serving the
 old build for two features and a whole session. The `deploy` script now pins
 `--branch production`. If the apex ever looks stale again:
 
 ```bash
-npx wrangler pages deployment list --project-name jetleg-sf   # Environment column
+npx wrangler pages deployment list --project-name jetleg   # Environment column
 ```
 
 `check-deploy.mjs` now also compares the live bundle hash against

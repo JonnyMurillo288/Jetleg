@@ -2,6 +2,7 @@ import { get as idbGet, set as idbSet, del as idbDel } from 'idb-keyval';
 import { supabase } from '../sync/client';
 import { rememberIdentity } from '../sync/identity';
 import type { Role } from '../engine/types';
+import type { Product } from '../payments/products';
 
 /**
  * The game room: which game this device is in, and on which team.
@@ -29,6 +30,24 @@ export type GameLookup = {
   gameId: string;
   joinCode: string;
   teams: { id: string; name: string; members: number }[];
+  pass: RoomPass;
+};
+
+/**
+ * A room's pass and places (0015_room_passes.sql). `status` null is a room
+ * with no pass — a developer's, or one from before rooms were sold — which
+ * shares positions and chat but lets nobody play who could not already.
+ */
+export type RoomPass = {
+  status: 'unpaid' | 'paid' | null;
+  product: Product | null;
+  durationS: number | null;
+  /** Null until the room's first round starts its clock. */
+  expiresAt: string | null;
+  maxSeats: number;
+  seatsTaken: number;
+  /** Whether this phone already holds one of the places. */
+  seated: boolean;
 };
 
 export type RosterEntry = {
@@ -88,6 +107,7 @@ export async function loadGame(): Promise<LocalGame | null> {
   return (await idbGet<LocalGame>(GAME_KEY)) ?? null;
 }
 
+/** A room with no pass, for developers (create_game refuses anyone else). Players buy theirs. */
 export async function createGame(displayName: string, teamName: string): Promise<Result<LocalGame>> {
   if (!supabase) return fail(NOT_CONFIGURED);
   if (!(await ensureSignedIn())) return fail(explain(undefined));
@@ -102,8 +122,35 @@ export async function lookupGame(code: string): Promise<Result<GameLookup>> {
   const { data, error } = await supabase.rpc('lookup_game', { code });
   if (error) return fail(explain(error.message));
   if (!data) return fail('No game with that code.');
-  const found = data as { game_id: string; join_code: string; teams: GameLookup['teams'] };
-  return { ok: true, value: { gameId: found.game_id, joinCode: found.join_code, teams: found.teams } };
+  const found = data as {
+    game_id: string;
+    join_code: string;
+    teams: GameLookup['teams'];
+    pass_status: RoomPass['status'];
+    pass_product: Product | null;
+    duration_s: number | null;
+    expires_at: string | null;
+    max_seats: number;
+    seats_taken: number;
+    seated: boolean;
+  };
+  return {
+    ok: true,
+    value: {
+      gameId: found.game_id,
+      joinCode: found.join_code,
+      teams: found.teams,
+      pass: {
+        status: found.pass_status,
+        product: found.pass_product,
+        durationS: found.duration_s,
+        expiresAt: found.expires_at,
+        maxSeats: found.max_seats,
+        seatsTaken: found.seats_taken,
+        seated: found.seated,
+      },
+    },
+  };
 }
 
 /** Join an existing team by id, or start a new one in the game by name. */
@@ -155,7 +202,7 @@ export async function gameRoster(gameId: string): Promise<RosterEntry[] | null> 
   );
 }
 
-/** The code of the game this device's pass was granted for, if it was granted for one. */
+/** The code of a room this device bought and that still has time, else of the game a granted pass named. */
 export async function entitledGameCode(): Promise<string | null> {
   if (!supabase) return null;
   const { data: session } = await supabase.auth.getSession();

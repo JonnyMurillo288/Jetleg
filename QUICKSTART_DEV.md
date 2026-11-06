@@ -1,12 +1,12 @@
 # Quickstart — a dev copy online
 
 How to put this branch online so you can test it on real phones: the app on a
-Cloudflare Pages **preview** (`https://dev.jetleg-sf.pages.dev`), talking to a
-**separate dev Supabase project**. Production (`https://jetleg-sf.pages.dev`)
+Cloudflare Pages **preview** (`https://dev.jetleg.pages.dev`), talking to a
+**separate dev Supabase project**. Production (`https://jetleg.pages.dev`)
 is not touched at any point.
 
 ```
-phones ──https──▶ dev.jetleg-sf.pages.dev   (Cloudflare Pages, branch "dev")
+phones ──https──▶ dev.jetleg.pages.dev   (Cloudflare Pages, branch "dev")
                          │
                          └──▶ <ref>.supabase.co   (Supabase project "jetleg-dev")
 ```
@@ -24,7 +24,7 @@ already logged in to wrangler), and a Supabase account.
 > **Already done, 31 Oct 2026**, for the Supabase project **JetLeg**
 > (`dwdgysnclfetwmuteefy`): §1–§6, with `jonnymurillo288@gmail.com` on both
 > tester lists, and all checks in §7 passing against
-> <https://dev.jetleg-sf.pages.dev>. Still to do: Google sign-in (§9), and
+> <https://dev.jetleg.pages.dev>. Still to do: Google sign-in (§9), and
 > the email templates (§2), which need custom SMTP first. The rest of this
 > page is how to repeat it, for another project or for production.
 
@@ -67,8 +67,8 @@ an anonymous identity first. In **Authentication**:
 | Sign In / Providers → Email → *Confirm email* | **On** — without it anyone can claim any address |
 | Sign In / Providers → Email → *Email OTP length* | **6** — new projects default to 8, which the app's six-digit code box cannot take |
 | Sign In / Providers → Email → *Email OTP expiration* | 3600 |
-| URL Configuration → *Site URL* | `https://dev.jetleg-sf.pages.dev` |
-| URL Configuration → *Redirect URLs* | add `https://dev.jetleg-sf.pages.dev` and `http://127.0.0.1:4310` |
+| URL Configuration → *Site URL* | `https://dev.jetleg.pages.dev` |
+| URL Configuration → *Redirect URLs* | add `https://dev.jetleg.pages.dev` and `http://127.0.0.1:4310` |
 | Authentication → *Allow manual linking* | **On** — Google sign-in links to the device's own identity (§9) |
 | Emails → Templates → *Magic Link* | paste the body of `supabase/templates/magic_link.html` |
 | Emails → Templates → *Confirm signup* | paste `supabase/templates/confirmation.html` |
@@ -103,7 +103,7 @@ npx supabase link --project-ref <ref>           # asks for the database password
 npx supabase db push                            # applies migrations 0001–0011
 
 # The testing code: six digits of your choosing. Treat it as a shared password for listed testers.
-npx supabase secrets set TEST_LOGIN_CODE=<six digits> APP_URL=https://dev.jetleg-sf.pages.dev
+npx supabase secrets set TEST_LOGIN_CODE=<six digits> APP_URL=https://dev.jetleg.pages.dev
 
 npx supabase functions deploy test-login
 npx supabase functions deploy stripe-checkout
@@ -178,18 +178,18 @@ This runs, in order:
    silently fell back to the local backend would load fine on a phone and
    then fail at every sign-in.
 2. `wrangler pages deploy … --branch dev` to the **`dev`** preview of the
-   `jetleg-sf` project.
+   `jetleg` project.
 3. `check-deploy`, which fetches the live preview and checks content types and
    that its bundle is the one just built. Cloudflare answers a missing file
    with `200 OK` and the home page, so status codes prove nothing here.
 
-Your dev copy is at **<https://dev.jetleg-sf.pages.dev>**. Run the same
+Your dev copy is at **<https://dev.jetleg.pages.dev>**. Run the same
 command for every update.
 
 To confirm production didn't move, check the hash before and after a dev deploy:
 
 ```bash
-curl -s https://jetleg-sf.pages.dev/ | grep -o 'assets/index-[A-Za-z0-9_-]*\.js'
+curl -s https://jetleg.pages.dev/ | grep -o 'assets/index-[A-Za-z0-9_-]*\.js'
 ```
 
 **After a dev deploy, `dist/` holds the dev build.** Run `npm run build` before
@@ -205,7 +205,7 @@ export SUPABASE_URL=https://<ref>.supabase.co
 export SUPABASE_ANON_KEY=eyJ...
 export SUPABASE_SERVICE_ROLE_KEY=eyJ...
 
-TARGET=https://dev.jetleg-sf.pages.dev/ npm run verify:flow   # landing, Start a game, stats, map pages
+TARGET=https://dev.jetleg.pages.dev/ npm run verify:flow   # landing, Start a game, stats, map pages
 npm run verify:room       # game rooms; a hider's location broadcast must be refused
 npm run verify:sync       # finished-round history
 npm run verify:payments   # pass checks and their database rules
@@ -218,7 +218,7 @@ at production.
 
 ### By hand, on phones
 
-Open <https://dev.jetleg-sf.pages.dev> on each phone (Safari: Share → **Add to
+Open <https://dev.jetleg.pages.dev> on each phone (Safari: Share → **Add to
 Home Screen**, then open it from there). Allow location when asked.
 
 1. **Landing page**: the San Francisco board picture and the menu.
@@ -249,27 +249,30 @@ and has *clear cache and reload* for a phone holding an old version.
 
 ## 8. Optional: payments in Stripe test mode
 
-Only needed to test buying a pass; developer access covers everything else.
+Only needed to test buying a game room; developer access covers everything
+else, and `npx tsx grant-room.ts room_2day` (in `app/`, with this project's
+`SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`) makes a paid room without
+Stripe at all.
 
-1. Stripe dashboard, **test mode** → Product catalogue: two one-time prices,
-   "72 hour pass" $0.99 and "1 week pass" $3.50. Copy both `price_…` ids.
+1. Stripe dashboard, **test mode**. Nothing to add to the Product catalogue:
+   the checkout function sends the room's name and price itself.
 2. Developers → Webhooks → **Add endpoint**:
-   `https://<ref>.supabase.co/functions/v1/stripe-webhook`, event
-   `checkout.session.completed`. Copy its signing secret (`whsec_…`).
+   `https://<ref>.supabase.co/functions/v1/stripe-webhook`, events
+   `checkout.session.completed` and `checkout.session.async_payment_succeeded`.
+   Copy its signing secret (`whsec_…`).
 3. Set the secrets. They apply to the next function call; there's nothing to
    redeploy:
 
    ```bash
    npx supabase secrets set \
      STRIPE_SECRET_KEY=sk_test_... \
-     STRIPE_WEBHOOK_SECRET=whsec_... \
-     STRIPE_PRICE_SINGLE_GAME=price_... \
-     STRIPE_PRICE_WEEK_PASS=price_...
+     STRIPE_WEBHOOK_SECRET=whsec_...
    ```
 
-4. On a phone that is **not** a developer, buy a pass with card
-   `4242 4242 4242 4242`, any future date, any CVC. You return to the game
-   with the paywall gone.
+4. On a phone that is **not** a developer, buy a room with card
+   `4242 4242 4242 4242`, any future date, any CVC. The room code is on the
+   Checkout page. You return to the Game tab with the room ready to join;
+   join it, and Start a new round works.
 
 More detail: `PAYMENTS_TESTING.md` §5.
 
@@ -289,7 +292,7 @@ More detail: `PAYMENTS_TESTING.md` §5.
 | Stripe says the webhook failed with 401 | `stripe-webhook` was deployed with JWT checks on. Redeploy with `--no-verify-jwt`. |
 | Stripe says `signature verification failed` | `STRIPE_WEBHOOK_SECRET` belongs to a different endpoint. Each endpoint has its own. |
 | No location on the phone | It must be the `https://` address. Check the **?** tab. On iOS: Settings → Privacy → Location Services → Safari Websites. |
-| A phone still shows the old version | Close and reopen the app twice (the service worker updates on the next load), or **?** → *clear cache and reload*. Then run `npm run verify:live https://dev.jetleg-sf.pages.dev`. |
+| A phone still shows the old version | Close and reopen the app twice (the service worker updates on the next load), or **?** → *clear cache and reload*. Then run `npm run verify:live https://dev.jetleg.pages.dev`. |
 | `verify:room` fails once with `CHANNEL_ERROR` right after a migration | Realtime catches up with a schema change on the next connection. Run it again; if it fails twice, it is real. |
 | No "Continue with Google" button | Google is off on the project, which is how it should be until §9 is done. The app asks Supabase and hides the button. |
 | Google says `redirect_uri_mismatch` | The Google client's *Authorized redirect URI* must be exactly `https://<ref>.supabase.co/auth/v1/callback`. |
@@ -324,7 +327,7 @@ Google permission for a name without the picture.
 4. **Data Access:** add exactly three scopes: `openid`,
    `.../auth/userinfo.email`, `.../auth/userinfo.profile`. Nothing else.
 5. **Clients → Create client → Web application:**
-   - *Authorized JavaScript origins*: `https://dev.jetleg-sf.pages.dev`
+   - *Authorized JavaScript origins*: `https://dev.jetleg.pages.dev`
    - *Authorized redirect URIs*: `https://dwdgysnclfetwmuteefy.supabase.co/auth/v1/callback`
      (the Supabase project, not the site: Google hands back to Supabase,
      which hands back to the app)
@@ -337,7 +340,7 @@ Google permission for a name without the picture.
 Client ID and Client secret, save. Leave *Skip nonce check* off.
 
 That's all. There's no redeploy: the app asks Supabase whether Google is on.
-Open <https://dev.jetleg-sf.pages.dev/#/maps> and the button appears in the
+Open <https://dev.jetleg.pages.dev/#/maps> and the button appears in the
 sign-in box at the bottom.
 
 ### Check it
@@ -358,8 +361,8 @@ testing code, avoids it. Worth trying on a real iPhone before relying on it.
 
 ## Who can see the dev copy
 
-`dev.jetleg-sf.pages.dev` is public: anyone with the link can open it. To
-restrict it, use the Cloudflare dashboard → Workers & Pages → `jetleg-sf` →
+`dev.jetleg.pages.dev` is public: anyone with the link can open it. To
+restrict it, use the Cloudflare dashboard → Workers & Pages → `jetleg` →
 Settings → *Access policy* for preview deployments. Each tester then signs in
 through Cloudflare Access first.
 

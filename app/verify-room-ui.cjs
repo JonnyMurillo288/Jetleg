@@ -88,7 +88,7 @@ async function player(browser, at, target) {
     await clickText(hider.p, 'I have a testing code');
     await hider.p.fill('.accountbox input.code', TEST_CODE);
     await clickText(hider.p, '^Sign in$');
-    await hider.p.waitForFunction(() => !/Unlock JetLeg SF/.test(document.querySelector('.sheet')?.textContent || ''), null, { timeout: 20000 });
+    await hider.p.waitForFunction(() => !/Play in a game room/.test(document.querySelector('.sheet')?.textContent || ''), null, { timeout: 20000 });
     await clickText(hider.p, 'Start a new round');
     inRound = await hider.p.waitForSelector('.seekerpin', { timeout: 15000 }).then(() => true, () => false);
     check('the hider is in a round, with the hand-placed seekers pin on offer', inRound);
@@ -96,14 +96,23 @@ async function player(browser, at, target) {
     console.log('SKIP  hider answer-assistant checks: no TEST_LOGIN_CODE on this stack, so the hider cannot start a round');
   }
 
-  // ---- seeker creates the game
+  // ---- a room is bought (made here the way stripe-webhook leaves it); the seeker is first in
+  const { data: room } = await admin.from('games')
+    .insert({ pass_status: 'paid', pass_product: 'room_2day', duration_s: 48 * 3600 }).select('join_code').single();
   await seeker.p.click('.gamebtn');
   await seeker.p.fill('.gameroom .field input', 'Sam');
-  await seeker.p.fill('.gameroom input[placeholder="Your team\'s name"]', 'Blue');
-  await clickText(seeker.p, 'Create game');
+  await seeker.p.fill('.gameroom input.code', room.join_code);
+  await clickText(seeker.p, 'Find game');
+  await seeker.p.waitForSelector('.gameroom .hint.fact', { timeout: 15000 });
+  check('a bought room shows its places and that its clock has not started',
+    /0 of 8 places taken · the clock starts at the first round/.test(await seeker.p.textContent('.gameroom .hint.fact')));
+  await seeker.p.fill('.gameroom input[placeholder="Or a new team\'s name"]', 'Blue');
+  await clickText(seeker.p, 'Add team');
   await seeker.p.waitForSelector('.gamecode strong', { timeout: 15000 });
   const code = (await seeker.p.textContent('.gamecode strong')).trim();
-  check('creating a game shows its code', /^[A-HJ-NP-Z2-9]{6}$/.test(code), code);
+  check('joining the room shows its code', code === room.join_code, code);
+  check('...and that this phone now holds one of the places',
+    await seeker.p.waitForFunction(() => /1 of 8 places taken/.test(document.querySelector('.gameroom')?.textContent || ''), null, { timeout: 15000 }).then(() => true, () => false));
   check('the code stays visible in the top bar', (await seeker.p.textContent('.topbar')).includes(code));
 
   // ---- hider switches role, then joins with the code
