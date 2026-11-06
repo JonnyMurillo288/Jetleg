@@ -61,7 +61,8 @@ export function AboutPage() {
         </p>
         <p>
           JetLeg is inspired by <i>Jet Lag: The Game</i>’s Hide and Seek. It is an unofficial, fan-made
-          companion, not affiliated with or endorsed by its makers; you need their rulebook and cards to play.
+          companion. <b>JetLeg is not affiliated with, endorsed by or connected to <i>Jet Lag: The Game</i> or
+          Wendover Productions.</b> You need their rulebook and cards to play.
         </p>
       </article>
     </Page>
