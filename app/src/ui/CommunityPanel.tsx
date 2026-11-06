@@ -457,6 +457,13 @@ function MapPage(props: {
         </p>
       )}
       {map.description && <p className="description">{map.description}</p>}
+      {map.kind === 'pack' && (
+        <p className="muted small">
+          Places, stops and lines from{' '}
+          <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a>,
+          under the Open Database License, as chosen and edited by {map.authorName}.
+        </p>
+      )}
       {map.hiddenAt && (
         <p className="hint warn small">
           Hidden from everyone else: {map.hiddenReason ?? 'by a moderator.'}{' '}

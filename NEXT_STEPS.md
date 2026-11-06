@@ -146,9 +146,16 @@ In order. Each is a decision or a piece of setup, not just code.
    `SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… npx tsx grant-developer.ts <email>`.
 5. **Decide what the paywall covers.** Game rooms, location sharing and
    community maps are all free right now; only starting a round costs.
-6. **Moderation, before the community is public.** There is no way to report
-   a map or comment, no admin delete, and no limit on how fast someone can
-   post. Anyone with a verified email can publish under any display name.
+6. **Moderation: built (0016, 0018); needs moderators.** Signed-in players
+   report a map or comment; three different reporters hide it until a
+   moderator looks; moderators work the queue at `/#/moderation` and can
+   hide or restore from any map page. Posting is rate-limited (20 comments,
+   10 new maps, 30 reports an hour). What's left: make someone a moderator
+   on each project — `npx tsx grant-moderator.ts <email>` with that
+   project's URL and service key, or in its SQL editor
+   `insert into moderators (email) values ('you@example.com');` — and
+   decide who else reads reports. Anyone can still publish under any
+   display name; names are not unique.
 7. **OpenStreetMap, before many people use the studio.** It calls two free
    public services straight from the browser: Nominatim (place search) and
    Overpass (stations and places). Both have usage policies and rate limits
@@ -158,17 +165,17 @@ In order. Each is a decision or a piece of setup, not just code.
    under a minute. The floor is still the public queue, 20–100 s on a busy
    day. For real traffic, put a small caching proxy in front of it (a
    Supabase function storing each city's answer, so only the first author
-   waits) or run your own; see the `jetleg-osm` skill. Separately,
-   OpenStreetMap data is ODbL-licensed: a published city map built from it
-   needs to say so. The basemap already credits OSM; the map pages do not.
-8. **The privacy page is a draft.** `/#/privacy` now says what is kept
-   (an anonymous device id, passes, game membership, emails, published maps
-   and comments) and what is not (positions), written from what the code
-   does. It still needs reading by whoever is answerable for it, a public
-   contact address (`CONTACT_EMAIL` in `app/src/pages/InfoPages.tsx`, empty
-   for now), and a way for a person to delete their own account — today
-   that is a request to the operator. The About page's "unofficial, not
-   affiliated" line is likewise mine and wants checking.
+   waits) or run your own; see the `jetleg-osm` skill. City map pages now
+   credit OpenStreetMap (ODbL), as the basemap already did.
+8. **Privacy, rules and contact: written; need a reader and an address.**
+   `/#/privacy` says what is kept and what is not, written from what the
+   code does, including reports and self-serve **Delete account** (0017,
+   beside your name in the studio). `/#/rules` is new: playing safely,
+   what may be published, how reports work. Both still need reading by
+   whoever is answerable for them, as does About's "unofficial, not
+   affiliated" line. The contact address is `VITE_CONTACT_EMAIL` (falls
+   back to `VITE_REPORT_EMAIL`) in each build's env file; unset, the pages
+   say "the person who runs this site".
 9. **Finish Google sign-in.** The code and the database side are done and
    on the dev project; it needs a Google OAuth client, and the dev copy has
    not yet done a real Google sign-in. `QUICKSTART_DEV.md` §9. Then the same

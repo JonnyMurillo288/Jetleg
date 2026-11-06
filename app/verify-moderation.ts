@@ -172,6 +172,20 @@ const sees = async (c: SupabaseClient, mapId: string) => {
   } else check('a room and a seat could be set up for the deletion check', false, game.error?.message ?? seat?.error?.message);
   check('other people’s things are untouched', (await sees(nobody, mapId)).listed);
 
+  // ------------------------------------------------------------ rate limits (0018)
+  const busy = await member('Busy');
+  const posted: boolean[] = [];
+  for (let i = 0; i < 21; i++) posted.push(!(await busy.client.from('community_comments').insert({ map_id: mapId, body: `comment ${i}` })).error);
+  const twentyFirst = await busy.client.from('community_comments').insert({ map_id: mapId, body: 'one more' });
+  check('twenty comments an hour go through; the twenty-first is refused, and says why',
+    posted.slice(0, 20).every(Boolean) && !posted[20] && /Too many comments/.test(twentyFirst.error?.message ?? ''), { first20: posted.slice(0, 20).filter(Boolean).length, err: twentyFirst.error?.message });
+  const published: boolean[] = [];
+  for (let i = 0; i < 11; i++) published.push(!(await busy.client.rpc('publish_map', { content: content(`Busy ${run} ${i}`), message: '' })).error);
+  check('ten new maps an hour; the eleventh is refused', published.slice(0, 10).every(Boolean) && !published[10], published);
+  const own = (await busy.client.from('community_maps').select('id').eq('author_id', busy.id).limit(1)).data?.[0]?.id;
+  const version = own ? await busy.client.rpc('publish_map_version', { map: own, content: content(`Busy ${run} v2`), message: 'v2' }) : null;
+  check('…but a new version of one of them still goes through', !!version && !version.error, version?.error?.message);
+
   // ------------------------------------------------------------ tidy up
   await admin.from('moderators').delete().eq('email', mod.email);
   if (game.data) await admin.from('games').delete().eq('id', game.data.id);
