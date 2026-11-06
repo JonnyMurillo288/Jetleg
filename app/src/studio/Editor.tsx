@@ -1026,11 +1026,18 @@ function LayersTab(p: TabProps & { pack: PackMap }) {
           onClick={() => runTool(p, 'osm-all', 'Fetching every category from OpenStreetMap', async (w) => {
             const all = await fetchAllPois(pack.boundary, w);
             const lines = Object.entries(all).map(([key, got]) => { apply(key, got.features, ''); return `${LAYER_DEFS.find((d) => d.key === key)?.label ?? key} ${got.features.length}`; });
-            commit(`Fetched ${lines.length} categories. ${lines.join(' · ')}`);
+            // Lines and coastline come out of the same one request (fetchBoard's cache). Left out,
+            // a city's transit-line questions all answered null with nothing to say why.
+            const transit = await fetchTransitLines(pack.boundary, w);
+            apply('transitLines', transit, '');
+            const coast = await fetchCoastline(pack.boundary, w);
+            // An empty fetch must not undo "Use the boundary's edge": that coastline was chosen.
+            if (coast.length || !pack.layers.coastline?.length) apply('coastline', coast, '');
+            commit(`Fetched ${lines.length} categories, ${transit.length} transit lines and ${coast.length} stretches of coastline. ${lines.join(' · ')}`);
           })}>
           Fetch every category from OpenStreetMap
         </ToolButton>
-        <p className="muted small">One request to a free, shared service, started when the boundary was set; a large city can take a minute. Review each list afterwards — the file you publish is the ruling.</p>
+        <p className="muted small">Every kind of place, plus transit lines and coastline: one request to a free, shared service, started when the boundary was set; a large city can take a minute. Review each list afterwards — the file you publish is the ruling.</p>
         <ul className="list layeraudit">
           {audit.map((a) => (
             <li key={a.key}>
@@ -1279,6 +1286,7 @@ function PublishTab(p: TabProps) {
             <input type="text" value={message} maxLength={200} placeholder={editor.target.type === 'new' ? 'First version' : 'What is different'} onChange={(e) => setMessage(e.target.value)} />
           </label>
           <button className="primary big" disabled={!!p.busy || p.blocking || editor.draft.stations.length < 2} onClick={publish}>{label}</button>
+          <p className="muted small">Published maps are public. Keep to the <a href="#/rules">community rules</a>: public places only, nobody's personal details.</p>
         </>
       ) : (
         <AccountBox account={account} reason="Publishing a map puts your name on it, so it needs you signed in." />

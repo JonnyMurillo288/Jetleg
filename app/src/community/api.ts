@@ -32,6 +32,12 @@ export type MapSummary = {
   branchCount: number;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Set when the map is hidden (0016): after reports, or by a moderator. Only
+   * its author and moderators can see a hidden map at all.
+   */
+  hiddenAt: string | null;
+  hiddenReason: string | null;
 };
 
 export type VersionSummary = {
@@ -53,6 +59,8 @@ export type Comment = {
   downCount: number;
   /** Up minus down: what the discussion is ordered by. */
   score: number;
+  /** Hidden (0016). Seen only by its author and moderators. */
+  hiddenAt: string | null;
 };
 
 export type MapDetail = {
@@ -78,7 +86,7 @@ const explain = (message: string | undefined) =>
 
 const MAP_COLUMNS =
   'id, name, description, author_id, author_name, kind, city, country, parent_map_id, parent_version_id, parent_map_name, head_version_id, ' +
-  'station_count, version_count, like_count, dislike_count, comment_count, branch_count, created_at, updated_at';
+  'station_count, version_count, like_count, dislike_count, comment_count, branch_count, created_at, updated_at, hidden_at, hidden_reason';
 
 type MapRow = Record<string, any>;
 const toSummary = (r: MapRow): MapSummary => ({
@@ -102,6 +110,8 @@ const toSummary = (r: MapRow): MapSummary => ({
   branchCount: r.branch_count,
   createdAt: r.created_at,
   updatedAt: r.updated_at,
+  hiddenAt: r.hidden_at ?? null,
+  hiddenReason: r.hidden_reason ?? null,
 });
 
 /**
@@ -174,7 +184,7 @@ export async function getMap(id: string): Promise<Result<MapDetail>> {
     client.from('community_map_versions').select('id, seq, message, station_count, created_at').eq('map_id', id).order('seq', { ascending: false }),
     client.from('community_maps').select(MAP_COLUMNS).eq('parent_map_id', id).order('like_count', { ascending: false }).limit(50),
     // Best first; among equals, the conversation's own order.
-    client.from('community_comments').select('id, parent_id, author_id, author_name, body, created_at, up_count, down_count, score')
+    client.from('community_comments').select('id, parent_id, author_id, author_name, body, created_at, up_count, down_count, score, hidden_at')
       .eq('map_id', id).order('score', { ascending: false }).order('created_at', { ascending: true }).limit(500),
     map.parentMapId
       ? client.from('community_maps').select('id, name, author_name').eq('id', map.parentMapId).maybeSingle()
@@ -198,7 +208,7 @@ export async function getMap(id: string): Promise<Result<MapDetail>> {
       branches: ((branches.data ?? []) as MapRow[]).map(toSummary),
       comments: (comments.data ?? []).map((c) => ({
         id: c.id, parentId: c.parent_id, authorId: c.author_id, authorName: c.author_name, body: c.body, createdAt: c.created_at,
-        upCount: c.up_count, downCount: c.down_count, score: c.score,
+        upCount: c.up_count, downCount: c.down_count, score: c.score, hiddenAt: c.hidden_at ?? null,
       })),
       myReaction: reaction.data?.value ?? 0,
       myVotes: Object.fromEntries((votes.data ?? []).map((v) => [v.comment_id, v.value])),
@@ -307,5 +317,63 @@ export async function deleteComment(commentId: string): Promise<Result<true>> {
   const { data, error } = await supabase.from('community_comments').delete().eq('id', commentId).select('id');
   if (error) return fail(explain(error.message));
   if (!data?.length) return fail('Only a comment’s author can delete it.');
+  return { ok: true, value: true };
+}
+
+// ------------------------------------------------------------------ moderation (0016)
+
+/**
+ * Report a map, or one comment on it. Once per person per thing; three
+ * different people hide it until a moderator looks. Says whether it is now
+ * hidden.
+ */
+export async function report(mapId: string, reason: string, commentId?: string): Promise<Result<{ hidden: boolean }>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { data, error } = await supabase.rpc('report_content', { map: mapId, reason, ...(commentId ? { comment: commentId } : {}) });
+  if (error) return fail(/Sign in/i.test(error.message) ? 'Sign in with your email to report something.' : explain(error.message));
+  return { ok: true, value: { hidden: !!(data as { hidden?: boolean } | null)?.hidden } };
+}
+
+/** Is the signed-in person a moderator? False on any doubt. */
+export async function amModerator(): Promise<boolean> {
+  if (!supabase) return false;
+  const { data, error } = await supabase.rpc('is_moderator');
+  return !error && data === true;
+}
+
+export type QueueItem = {
+  mapId: string;
+  /** Null when the item is the map itself. */
+  commentId: string | null;
+  mapName: string;
+  authorName: string;
+  /** The comment, or the map's description. */
+  body: string;
+  hiddenAt: string | null;
+  hiddenReason: string | null;
+  openReports: number;
+  reasons: string[];
+  lastReportedAt: string | null;
+};
+
+/** Everything with an open report, and everything hidden. Moderators only. */
+export async function moderationQueue(): Promise<Result<QueueItem[]>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { data, error } = await supabase.rpc('moderation_queue');
+  if (error) return fail(/Moderators only/.test(error.message) ? 'This page is for moderators.' : explain(error.message));
+  return {
+    ok: true,
+    value: ((data ?? []) as MapRow[]).map((r) => ({
+      mapId: r.map_id, commentId: r.comment_id, mapName: r.map_name, authorName: r.author_name, body: r.body ?? '',
+      hiddenAt: r.hidden_at, hiddenReason: r.hidden_reason, openReports: r.open_reports, reasons: r.reasons ?? [], lastReportedAt: r.last_reported_at,
+    })),
+  };
+}
+
+/** Hide or restore a map (no comment) or a comment, closing its reports. Moderators only. */
+export async function moderate(mapId: string, hide: boolean, commentId?: string): Promise<Result<true>> {
+  if (!supabase) return fail(NOT_CONFIGURED);
+  const { error } = await supabase.rpc('moderate', { map: mapId, hide, ...(commentId ? { comment: commentId } : {}) });
+  if (error) return fail(explain(error.message));
   return { ok: true, value: true };
 }

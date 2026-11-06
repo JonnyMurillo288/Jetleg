@@ -3,13 +3,16 @@ import { supabase } from '../sync/client';
 import type { Account } from '../community/account';
 import type { ActiveMap } from '../community/active';
 import {
+  amModerator,
   deleteComment,
   deleteMap,
   getMap,
   getVersionContent,
   listMaps,
+  moderate,
   postComment,
   react,
+  report,
   searchMaps,
   voteOnComment,
   type Comment,
@@ -92,6 +95,14 @@ function Browse(props: Props) {
   const [searched, setSearched] = useState('');
   const [person, setPerson] = useState<Person | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [isMod, setIsMod] = useState(false);
+  const who = props.account.state === 'signedIn' ? props.account.userId : props.account.state;
+  useEffect(() => {
+    let cancelled = false;
+    if (props.account.state === 'signedIn') amModerator().then((m) => { if (!cancelled) setIsMod(m); });
+    else setIsMod(false);
+    return () => { cancelled = true; };
+  }, [who]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let cancelled = false;
@@ -129,6 +140,7 @@ function Browse(props: Props) {
   return (
     <div className="pad community">
       <h2>{props.create ? 'Create a map' : 'Community maps'}</h2>
+      {isMod && !props.create && <p className="small"><a href="#/moderation">Moderation queue →</a></p>}
       <p className="muted">
         {props.create
           ? 'Build a board from scratch — a new set of stations for San Francisco, or a whole other city — then play on it, save it as a file, or publish it.'
@@ -213,6 +225,7 @@ function Browse(props: Props) {
                 <button className="link grow" onClick={() => props.onOpen(m.id)}>
                   <b>{m.name}</b>
                   {active?.mapId === m.id && <span className="tag good">playing</span>}
+                  {m.hiddenAt && <span className="tag warn">hidden</span>}
                   <span className="muted small maprow">
                     by {m.authorName} · {m.kind === 'pack' ? `${m.city} · full city` : 'San Francisco'} · {plural(m.stationCount, 'station')}
                     {m.parentMapName && ' · a branch'}
@@ -355,6 +368,13 @@ function MapPage(props: {
   // controls depend on who is asking.
   const who = account.state === 'signedIn' ? account.userId : account.state;
   useEffect(() => { load(); }, [load, who]);
+  const [isMod, setIsMod] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    if (account.state === 'signedIn') amModerator().then((m) => { if (!cancelled) setIsMod(m); });
+    else setIsMod(false);
+    return () => { cancelled = true; };
+  }, [who]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Put the map itself on the studio's map — a page of text about a board
   // is a poor way to judge it.
@@ -437,6 +457,12 @@ function MapPage(props: {
         </p>
       )}
       {map.description && <p className="description">{map.description}</p>}
+      {map.hiddenAt && (
+        <p className="hint warn small">
+          Hidden from everyone else: {map.hiddenReason ?? 'by a moderator.'}{' '}
+          {mine ? 'You can still see it, play it and download it.' : 'Only its author and moderators can see it.'}
+        </p>
+      )}
 
       <div className="row reactions">
         <button className={detail.myReaction === 1 ? 'on' : ''} disabled={!signedIn} aria-pressed={detail.myReaction === 1} onClick={() => setReaction(1)}>
@@ -470,6 +496,22 @@ function MapPage(props: {
           >
             Delete
           </button>
+        )}
+        {signedIn && !mine && !map.hiddenAt && (
+          <button className="link" onClick={async () => {
+            const reason = prompt('What is wrong with this map? A moderator will read this. Maps reported by three people are hidden until a moderator looks.');
+            if (!reason?.trim()) return;
+            const res = await report(map.id, reason);
+            setNote(res.ok ? (res.value.hidden ? 'Thanks. The map is hidden until a moderator looks at it.' : 'Thanks — a moderator will look at it.') : res.error);
+            if (res.ok && res.value.hidden) await load();
+          }}>Report</button>
+        )}
+        {isMod && (
+          <button className="link danger" onClick={async () => {
+            const res = await moderate(map.id, !map.hiddenAt);
+            setNote(res.ok ? (map.hiddenAt ? 'Restored: everyone can see it again.' : 'Hidden from everyone but its author.') : res.error);
+            await load();
+          }}>{map.hiddenAt ? 'Restore (moderator)' : 'Hide (moderator)'}</button>
         )}
       </div>
       {note && <p className="small notice">{note}</p>}
@@ -515,13 +557,13 @@ function MapPage(props: {
         </ul>
       )}
 
-      <Thread mapId={map.id} comments={detail.comments} myVotes={detail.myVotes} account={account} signedIn={signedIn} onChanged={load} />
+      <Thread mapId={map.id} comments={detail.comments} myVotes={detail.myVotes} account={account} signedIn={signedIn} isMod={isMod} onChanged={load} />
     </div>
   );
 }
 
 function Thread(props: {
-  mapId: string; comments: Comment[]; myVotes: Record<string, number>; account: Account; signedIn: boolean; onChanged: () => Promise<void>;
+  mapId: string; comments: Comment[]; myVotes: Record<string, number>; account: Account; signedIn: boolean; isMod: boolean; onChanged: () => Promise<void>;
 }) {
   const { comments, account, signedIn } = props;
   const [body, setBody] = useState('');
@@ -554,6 +596,19 @@ function Thread(props: {
   const remove = async (c: Comment) => {
     if (!confirm('Delete this comment?')) return;
     const res = await deleteComment(c.id);
+    if (!res.ok) setError(res.error);
+    await props.onChanged();
+  };
+
+  const flag = async (c: Comment) => {
+    const reason = prompt(`What is wrong with ${c.authorName}’s comment? A moderator will read this.`);
+    if (!reason?.trim()) return;
+    const res = await report(props.mapId, reason, c.id);
+    setError(res.ok ? (res.value.hidden ? 'Thanks. The comment is hidden until a moderator looks at it.' : 'Thanks — a moderator will look at it.') : res.error);
+    if (res.ok && res.value.hidden) await props.onChanged();
+  };
+  const toggleHidden = async (c: Comment) => {
+    const res = await moderate(props.mapId, !c.hiddenAt, c.id);
     if (!res.ok) setError(res.error);
     await props.onChanged();
   };
@@ -592,9 +647,12 @@ function Thread(props: {
             <b>{c.authorName}</b> <span className="muted">· {when(c.createdAt)}</span>
           </div>
           <p>{c.body}</p>
+          {c.hiddenAt && <p className="muted small">Hidden from everyone but {mine ? 'you' : 'its author'} and moderators.</p>}
           <div className="small">
             {signedIn && !isReply && <button className="link" onClick={() => { setReplyTo(c.id); setReplyBody(''); }}>Reply</button>}
             {mine && <button className="link danger" onClick={() => remove(c)}>Delete</button>}
+            {signedIn && !mine && !c.hiddenAt && <button className="link" onClick={() => flag(c)}>Report</button>}
+            {props.isMod && <button className="link danger" onClick={() => toggleHidden(c)}>{c.hiddenAt ? 'Restore' : 'Hide'}</button>}
           </div>
         </div>
       </div>
@@ -624,6 +682,7 @@ function Thread(props: {
         <div className="compose">
           <textarea value={body} maxLength={2000} rows={3} placeholder="What do you like or dislike about this map?" onChange={(e) => setBody(e.target.value)} />
           <button className="primary" disabled={busy || !body.trim()} onClick={() => post(body)}>{busy ? 'Posting…' : 'Comment'}</button>
+          <p className="muted small">Comments are public. Keep to the <a href="#/rules">community rules</a>.</p>
         </div>
       ) : null}
       {error && <p className="warntext">{error}</p>}

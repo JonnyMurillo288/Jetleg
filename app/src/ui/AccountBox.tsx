@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  googleEnabled, requestCode, setDisplayName, signInWithGoogle, signOut, takeGoogleError, verifyCode,
+  deleteMyAccount, googleEnabled, requestCode, setDisplayName, signInWithGoogle, signOut, takeGoogleError, verifyCode,
   type Account, type CodeKind,
 } from '../community/account';
 
@@ -63,6 +63,16 @@ export function AccountBox(props: { account: Account; reason?: string }) {
             Signed in as <b>{account.displayName}</b> · {account.email}{' '}
             <button className="link" onClick={() => { setName(account.displayName ?? ''); setEditingName(true); }}>Rename</button>
             <button className="link" onClick={() => confirm('Sign out on this device? Any pass or developer access stays with the account — sign back in to use it.') && signOut()}>Sign out</button>
+            <button className="link danger" disabled={busy} onClick={() => {
+              const sure = confirm(
+                'Delete your account for good?\n\n' +
+                'Gone from the server: your display name, every map you published (with its history and discussion), ' +
+                'your comments, likes and reports.\n\n' +
+                'Kept: rounds on this phone, which were never on the server. A place you took in a game room stays taken.\n\n' +
+                'This cannot be undone.',
+              );
+              if (sure) run(deleteMyAccount);
+            }}>Delete account</button>
           </p>
         )}
         {error && <p className="warntext">{error}</p>}

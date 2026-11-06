@@ -197,3 +197,13 @@ figure figcaption strong { color: var(--ink); }
   .lp-split.reverse { grid-template-columns: 1fr 340px; }
   .lp-phone { max-width: 320px; }
 }
+
+/* -------------------------------------------------------------- pricing */
+
+.lp-prices { display: grid; gap: 14px; margin-top: 24px; }
+.lp-price { padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); }
+.lp-price.featured { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.lp-price > strong { font-size: 18px; }
+.lp-amounts { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 8px 0 0; font-size: 15px; color: var(--muted); }
+.lp-amounts b { font-size: 26px; color: var(--ink); margin-right: 4px; }
+@media (min-width: 700px) { .lp-prices { grid-template-columns: 1fr 1fr; } }

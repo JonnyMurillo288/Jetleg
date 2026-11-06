@@ -1,11 +1,12 @@
 import { Page } from './Page';
 
 /**
- * Who to write to about the site or about data held on its server. Left
- * empty until there is an address meant to be public; the pages below say
- * so plainly rather than inventing one.
+ * Who to write to about the site or about data held on its server. Set at
+ * build time (VITE_CONTACT_EMAIL, else VITE_REPORT_EMAIL) so each deployment
+ * names its own and no address is committed. Unset, the pages say so
+ * plainly rather than inventing one.
  */
-const CONTACT_EMAIL = '';
+const CONTACT_EMAIL = import.meta.env.VITE_CONTACT_EMAIL || import.meta.env.VITE_REPORT_EMAIL || '';
 
 const Contact = () =>
   CONTACT_EMAIL
@@ -36,6 +37,13 @@ export function AboutPage() {
           <li><a href="#/maps/new">Create a map</a> — a different set of stations for San Francisco, or a whole board for another city.</li>
           <li><a href="#/stats">Game stats</a> — any round, looked back on question by question.</li>
         </ul>
+        <p>
+          Before you play, read <a href="#/rules">playing safely</a>: the game happens on real streets and real
+          transit. Before you publish or comment, read the <a href="#/rules">community rules</a>.
+        </p>
+
+        <h2>Contact</h2>
+        <p>Questions about the site, a map, or your data: <Contact />.</p>
 
         <h2>Yours, on your device</h2>
         <p>
@@ -124,6 +132,10 @@ export function PrivacyPage() {
             not shown.
           </li>
           <li>
+            <b>If you report a map or comment:</b> what you reported, your reason, and that it was you. Only
+            the site's moderators can read reports; the person you reported is not told who it was.
+          </li>
+          <li>
             <b>Signing in with Google</b> keeps your Google account's id, email address and name, and
             nothing else. Google's sign-in also offers your profile picture and language; they are thrown
             away as the account is saved. Your name is only ever suggested as a display name — you choose
@@ -147,9 +159,75 @@ export function PrivacyPage() {
         <h2>Deleting your data</h2>
         <p>
           Anything on your device you can delete yourself. Maps and comments you published can be deleted
-          from their own pages. To have an account and everything attached to it removed from the server,
-          ask <Contact />.
+          from their own pages.
         </p>
+        <p>
+          To delete your account, sign in and choose <b>Delete account</b> (under Map studio, beside your
+          name). It takes effect at once and removes your display name, every map you published with its
+          history and discussion, and your comments, likes and reports. Two things stay. A game room you
+          bought keeps running for the players in it, and its record — the room and the email you gave
+          Stripe for the receipt — is kept as the record of that payment. A place you took in a room stays
+          taken, with nothing linking it to you.
+        </p>
+        <p>Anything else, or if you cannot sign in any more: <Contact />.</p>
+      </article>
+    </Page>
+  );
+}
+
+export function RulesPage() {
+  return (
+    <Page title="Community rules">
+      <article className="prose">
+        <h2>Playing safely</h2>
+        <p>
+          JetLeg is played on real streets and real public transit, often in a hurry. Nothing in a game is
+          worth getting hurt, fined or arrested for.
+        </p>
+        <ul>
+          <li>Follow the law, the transit system's rules, and pay your fares.</li>
+          <li>Stay off tracks and away from platform edges. Do not run in stations or on escalators.</li>
+          <li>Look up from your phone when you cross a street.</li>
+          <li>Do not enter private property, closed areas, or anywhere you would not normally be allowed.</li>
+          <li>Agree before you start when the game ends, and how to reach each other if something goes wrong.</li>
+          <li>
+            A hider's position is never sent by the app. Tell someone outside the game where you will be,
+            and keep your phone charged.
+          </li>
+          <li>Players under 18 should play with an adult's say-so, and in a group.</li>
+        </ul>
+
+        <h2>Publishing maps and comments</h2>
+        <p>Maps and comments are public. Everything you publish must keep to these rules:</p>
+        <ul>
+          <li>
+            <b>Public places only.</b> No hiding zones, places or boundaries that send players onto private
+            property, into schools, or anywhere unsafe or off-limits.
+          </li>
+          <li>
+            <b>No personal information.</b> No one's home, workplace, phone number or other private details —
+            in a map's name, its description, its places or a comment.
+          </li>
+          <li><b>Be decent.</b> No harassment, threats, hate, or sexual content. Nothing illegal.</li>
+          <li><b>Be honest.</b> Name and describe maps truthfully. No spam, advertising or pretending to be someone else.</li>
+          <li>
+            <b>Credit other makers.</b> Build on someone's map by branching it, which credits them, rather than
+            publishing a copy as your own.
+          </li>
+        </ul>
+
+        <h2>Reports and moderation</h2>
+        <p>
+          Signed-in players can report a map or a comment from its page. Moderators read every report. When
+          three different players have reported the same thing, it is hidden straight away until a moderator
+          looks, so something harmful does not stay up overnight. A moderator then either restores it or
+          keeps it hidden.
+        </p>
+        <p>
+          A hidden map or comment is not deleted: its author can still see it, play it and download it, and is
+          told it is hidden. Maps and accounts that break these rules repeatedly may be removed.
+        </p>
+        <p>To appeal, or to report something urgent: <Contact />.</p>
       </article>
     </Page>
   );

@@ -15,7 +15,10 @@ export type Route =
   | { page: 'maps'; open?: string; create?: boolean }
   | { page: 'stats' }
   | { page: 'about' }
-  | { page: 'privacy' };
+  | { page: 'privacy' }
+  | { page: 'rules' }
+  /** Moderators' queue of reported and hidden maps and comments (0016). */
+  | { page: 'moderation' };
 
 export function parseRoute(hash: string): Route {
   const [head, ...rest] = hash.replace(/^#\/?/, '').split('/').filter(Boolean);
@@ -25,6 +28,8 @@ export function parseRoute(hash: string): Route {
     case 'stats': return { page: 'stats' };
     case 'about': return { page: 'about' };
     case 'privacy': return { page: 'privacy' };
+    case 'rules': return { page: 'rules' };
+    case 'moderation': return { page: 'moderation' };
     case 'maps':
       if (rest[0] === 'new') return { page: 'maps', create: true };
       if (rest[0] === 'map' && rest[1]) return { page: 'maps', open: decodeURIComponent(rest[1]) };

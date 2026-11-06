@@ -7,7 +7,8 @@ import { StudioApp } from './studio/StudioApp';
 import { Landing } from './pages/Landing';
 import { StartGame } from './pages/StartGame';
 import { StatsPage } from './pages/StatsPage';
-import { AboutPage, PrivacyPage } from './pages/InfoPages';
+import { AboutPage, PrivacyPage, RulesPage } from './pages/InfoPages';
+import { ModerationPage } from './pages/ModerationPage';
 import { parseRoute, useRoute } from './route';
 import { finishGoogleSignIn, restorePageAfterGoogle } from './community/account';
 import { startUpdates } from './update';
@@ -42,6 +43,8 @@ function Root() {
     case 'stats': return <StatsPage />;
     case 'about': return <AboutPage />;
     case 'privacy': return <PrivacyPage />;
+    case 'rules': return <RulesPage />;
+    case 'moderation': return <ModerationPage />;
     default: return <Landing />;
   }
 }

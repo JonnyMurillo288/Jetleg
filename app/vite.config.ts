@@ -44,9 +44,9 @@ export default defineConfig({
       injectRegister: false,
       includeAssets: ['data/*.geojson', 'data/*.json'],
       manifest: {
-        name: 'JetLeg — Hide+Seek San Francisco',
-        short_name: 'JetLeg SF',
-        description: 'Map and deduction tool for Jet Lag: Hide+Seek in San Francisco.',
+        name: 'JetLeg — real-world hide and seek',
+        short_name: 'JetLeg',
+        description: 'Design, discover and play real-world hide and seek on public transit. Explore maps made by people who know their city, gather your friends, and see how your game unfolded.',
         theme_color: '#111827',
         background_color: '#f8fafc',
         display: 'standalone',

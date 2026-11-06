@@ -1052,3 +1052,10 @@ button.resume.big { min-height: 44px; }
 .report .reportdevice { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--line); border-radius: 8px; padding: 8px 10px; margin: 4px 0 0; }
 .report .check { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; min-height: 36px; }
 .report .notice { padding: 8px 10px; border-radius: 8px; background: var(--line); }
+
+/* ------------------------------------------------------------ moderation */
+
+.list.modqueue li { align-items: flex-start; flex-wrap: wrap; gap: 8px; }
+.modqueue .reasons { margin: 6px 0 2px; padding-left: 18px; }
+.modqueue p { margin: 6px 0 0; overflow-wrap: anywhere; }
+.list.modqueue .reasons li { display: list-item; border: 0; padding: 1px 0; min-height: 0; }

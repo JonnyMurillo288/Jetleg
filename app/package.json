@@ -24,6 +24,7 @@
     "verify:community": "tsx verify-community.ts",
     "verify:community:ui": "node verify-community-ui.cjs",
     "verify:developer": "tsx verify-developer.ts",
+    "verify:moderation": "tsx verify-moderation.ts",
     "verify:flow": "node verify-flow.cjs",
     "verify:google": "node verify-google.cjs",
     "verify:cuts": "node verify-cut-zones.cjs",

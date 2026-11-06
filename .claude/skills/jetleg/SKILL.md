@@ -61,6 +61,8 @@ npm run verify:chat:ui      # verify-chat-ui.cjs — ask, clock, answer by hand,
 npm run verify:update       # verify-update.cjs — an installed copy picks up a new deploy: on its own when just opened, by banner when in use (needs `npm run build`, no backend)
 npm run verify:community    # verify-community.ts — community maps: who may publish/like/comment, versions, branches, concurrent counts, the real emailed-code sign-in
 npm run verify:community:ui # verify-community-ui.cjs — two browsers in the map studio (#/maps): a station map, then a whole city (boundary, OSM stations + places, Voronoi built and hand-made), play it in the game, like, comment, branch. OSM is mocked.
+npm run verify:moderation   # verify-moderation.ts — reports, three-reporter auto-hide, the moderator queue, hide/restore, and delete_my_account (what goes, what stays: a room seat stays taken)
+node verify-moderation-ui.cjs # the same through the UI: Report, the #/moderation queue, Restore, Delete account, the rules page (needs TEST_LOGIN_CODE)
 npm run verify:developer    # verify-developer.ts — developer list, the fixed testing code (listed addresses only, lockout), then paywall -> sign in -> round starts, in a browser
 npm run verify:layers       # verify-map-layers.cjs — the layers controls on the map, studio and game: station points, hiding zones, each places category, each category's Voronoi cells, the edited category staying on; every switch checked by what MapLibre drew
 npm run verify:shapes       # verify-select-shapes.cjs — selection shapes with a mouse and with a finger (CDP touch events): rectangle, lasso, polygon, add/remove, points/zones, places; checked against an independent point-in-polygon count, and that the map does not pan while drawing

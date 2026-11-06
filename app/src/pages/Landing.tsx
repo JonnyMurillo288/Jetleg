@@ -4,6 +4,7 @@ import { CITY_NAME } from '../community/board';
 import { listMaps, type MapSummary } from '../community/api';
 import { cityName, flagOf } from '../community/cities';
 import { mapHref } from '../route';
+import { PRODUCTS, ROOM_SEATS } from '../payments/products';
 import './landing.css';
 
 const img = (name: string) => `${import.meta.env.BASE_URL}${name}`;
@@ -220,6 +221,37 @@ export function Landing() {
           </div>
         </section>
 
+        <section className="lp-section" aria-labelledby="price">
+          <div className="lp-wrap">
+            <p className="lp-kicker">What it costs</p>
+            <h2 id="price">Free to explore. One room for the whole group.</h2>
+            <div className="lp-prices">
+              <div className="lp-price">
+                <strong>Free, always</strong>
+                <ul className="lp-ticks">
+                  <li>Browse every map, and look at any board</li>
+                  <li>Build, publish and branch maps in the map studio</li>
+                  <li>Look back at rounds you have played</li>
+                </ul>
+              </div>
+              <div className="lp-price featured">
+                <strong>A game room</strong>
+                <p className="lp-amounts">
+                  {Object.values(PRODUCTS).map((p) => (
+                    <span key={p.room}><b>{p.price}</b> for {p.label}</span>
+                  ))}
+                </p>
+                <ul className="lp-ticks">
+                  <li>One person buys it; up to {ROOM_SEATS} players join with its code</li>
+                  <li>Unlimited rounds until the time runs out</li>
+                  <li>The clock starts at the first round, so buy it the night before</li>
+                  <li>No sign-in needed to play</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section className="lp-section" aria-labelledby="why">
           <div className="lp-wrap lp-narrow">
             <h2 id="why">Not just another map. A whole new way to play.</h2>
@@ -246,6 +278,7 @@ export function Landing() {
 
       <footer className="pagefoot">
         <a href="#/about">About</a>
+        <a href="#/rules">Rules &amp; safety</a>
         <a href="#/privacy">Privacy</a>
         <a href="#/stats">Game stats</a>
       </footer>

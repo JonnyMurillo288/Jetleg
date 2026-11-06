@@ -281,6 +281,20 @@ export async function signOut(): Promise<void> {
   changed();
 }
 
+/**
+ * Delete this account from the server (0017): profile, published maps,
+ * comments, likes and reports go with it. Then this device carries on as a
+ * fresh anonymous one, exactly as after signing out. Rounds on the phone
+ * were never on the server and are not touched.
+ */
+export async function deleteMyAccount(): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!supabase) return { ok: false, error: 'This build has no server configured.' };
+  const { error } = await supabase.rpc('delete_my_account');
+  if (error) return { ok: false, error: explain(error.message) };
+  await signOut();
+  return { ok: true };
+}
+
 /** The name maps and comments are published under. */
 export async function setDisplayName(name: string): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!supabase) return { ok: false, error: 'This build has no server configured.' };
