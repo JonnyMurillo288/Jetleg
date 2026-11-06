@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useActiveRound, useGame } from '../store/game';
-import { CITY_NAME } from '../community/board';
+import { CITY_NAME, HOME_MAP_NAME } from '../community/board';
 import { listMaps, type MapSummary } from '../community/api';
 import { cityName, flagOf } from '../community/cities';
 import { mapHref } from '../route';
@@ -46,8 +46,8 @@ export function Landing() {
           <a href="#/stats">Stats</a>
         </nav>
         <div className="lp-hero-text">
-          <p className="lp-eyebrow">Real places. Custom games. Bigger adventures.</p>
-          <h1>Your city. Your rules. Your game.</h1>
+          <p className="lp-eyebrow">Customize your games.</p>
+          <h1>Customize your games in your city</h1>
           <p className="lp-lede">
             Turn real places into games of hide and seek. Play a map made by someone who knows the city, or
             build your own — its boundary, its hiding zones, its rules. Then look back at how the hunt unfolded.
@@ -73,7 +73,7 @@ export function Landing() {
               <li>
                 <span className="lp-num">01</span>
                 <strong>Find your game</strong>
-                <span>Choose a city and a map — the built-in {CITY_NAME} board, or one the community made.</span>
+                <span>Choose a city and a map to explore — ours, or one the community made.</span>
               </li>
               <li>
                 <span className="lp-num">02</span>
@@ -103,12 +103,11 @@ export function Landing() {
             <h2 id="place">A game built for this place.</h2>
             <p className="lp-intro">
               Every JetLeg map is a set of choices: where the edge of the game is, which stops you can hide at,
-              and which places the questions are about. Here is the one that ships with the app.
+              and which places the questions are about. Here is one of ours.
             </p>
             <article className="lp-feature-card">
               <header>
-                <h3>{CITY_NAME} — the built-in board</h3>
-                <span className="muted">🇺🇸 {CITY_NAME} · made by JetLeg</span>
+                <h3>{HOME_MAP_NAME}</h3>
               </header>
               <ul className="lp-points">
                 <li>
@@ -119,10 +118,6 @@ export function Landing() {
                   <strong>Matching zones from real places</strong>
                   <span>Parks, libraries, museums, hospitals, consulates and more split the city into cells, so
                     “is your nearest library the same as mine?” has exactly one right answer.</span>
-                </li>
-                <li>
-                  <strong>Rulings made before the game</strong>
-                  <span>What counts as a park or a zoo is settled on the map, not argued about mid-round.</span>
                 </li>
               </ul>
               <a className="lp-btn primary" href="#/start">Play this map</a>
@@ -217,7 +212,7 @@ export function Landing() {
             <figure className="lp-phone">
               <img src={img('marketing/stats-round.jpg')} width={780} height={1688} loading="lazy"
                 alt="Stats for a finished round: 3 of 192 zones left after 6 questions, the best and weakest question, and the hider's real station." />
-              <figcaption>A sample round on the built-in board: six questions, answered truthfully.</figcaption>
+              <figcaption>A sample round in {CITY_NAME}: six questions, answered truthfully.</figcaption>
             </figure>
           </div>
         </section>
