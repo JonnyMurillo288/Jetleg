@@ -167,6 +167,7 @@ band or an empty POI layer is a real signal, not noise to silence.
 - **The landing page's map is a picture, and it does not follow the board.**
   After changing the station set, `npm run shot:landing` (needs a preview
   server and a connection) and commit `public/landing-sf.jpg`.
+- **The hero turns through six maps.** San Francisco (`shot:landing`) first, then `public/marketing/hero-<city>.jpg` from `npm run shot:heroes`, which opens each `Marketing/maps/<city>.jetleg-map.json` in the studio and photographs the map alone. The others are fetched only after San Francisco has arrived, and stay out of the service worker's precache.
 - **So are its product screenshots.** `public/marketing/*.jpg` (studio,
   seeker's phone, round stats) come from `npm run shot:marketing`, which
   also writes full-size PNGs to the git-ignored `Marketing/` folder. Retake

@@ -15,6 +15,32 @@
   max-height: 900px;
   object-fit: cover;
 }
+/* The other cities, stacked over San Francisco, which stays underneath as the page's height and its
+   first picture. Each fades in over the last; the one going out waits until the new one is in, so
+   no blank shows mid-fade. Index order is stacking order, and the turn goes up it, then back to SF. */
+.lp-hero-slide {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+  opacity: 0;
+  transition: opacity 1.4s ease 1.4s;
+}
+.lp-hero-slide.on { opacity: 1; transition-delay: 0s; }
+.lp-hero-city {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 62px);
+  left: 16px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .92);
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 600;
+}
+@media (prefers-reduced-motion: reduce) { .lp-hero-slide { transition: none; } }
+
 /* Always the same dark veil and white type: they sit on a picture, not on the theme. */
 .lp-nav {
   position: absolute;
@@ -179,6 +205,7 @@ figure figcaption strong { color: var(--ink); }
   .lp-hero-text h1 { font-size: 52px; }
   .lp-lede { font-size: 17px; }
   .lp-nav { padding-left: 24px; padding-right: 24px; }
+  .lp-hero-city { left: 28px; top: calc(env(safe-area-inset-top) + 66px); }
   .lp-section { padding: 72px 0; }
   .lp-wrap { padding: 0 28px; }
   .lp-section h2, .lp-final h2 { font-size: 36px; }

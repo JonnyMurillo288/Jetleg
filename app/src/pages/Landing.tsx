@@ -10,11 +10,76 @@ import './landing.css';
 const img = (name: string) => `${import.meta.env.BASE_URL}${name}`;
 
 /**
+ * The hero's pictures, in turn: the board the app ships with first, then one
+ * of each city we have made a map for (`npm run shot:heroes`, the same
+ * picture of the studio's map that shot:landing takes of San Francisco).
+ */
+const HERO_SLIDES = [
+  { src: 'landing-sf.jpg', city: HOME_MAP_NAME, alt: `The ${CITY_NAME} board: every hiding zone is a transit stop and the 500 m circle around it.` },
+  { src: 'marketing/hero-paris.jpg', city: 'Paris', alt: 'The Paris map: hiding zones at métro, RER, tram and bus stops across the city, none overlapping.' },
+  { src: 'marketing/hero-london.jpg', city: 'Central London', alt: 'The Central London map: hiding zones at Tube, rail and bus stops from Hammersmith to Stratford.' },
+  { src: 'marketing/hero-chicago.jpg', city: 'Chicago', alt: 'The Chicago map: hiding zones at L, Metra and bus stops across the whole city.' },
+  { src: 'marketing/hero-tokyo.jpg', city: 'Tokyo', alt: 'The Tokyo map: hiding zones inside the Yamanote loop.' },
+  { src: 'marketing/hero-toronto.jpg', city: 'Toronto', alt: 'The Toronto map: hiding zones at subway, streetcar and bus stops across the city.' },
+];
+/** How long each picture stays, and how long the fade between two takes (landing.css). */
+const SLIDE_MS = 6000;
+
+/**
+ * San Francisco shows at once, as it always has. The others are only asked
+ * for once it has arrived — not at the window's load event, which fires
+ * before React has even drawn the hero — so they never compete with it for a
+ * first visitor's connection, and a picture joins the turn only once it has
+ * arrived too. Someone who has asked their device for less motion keeps the
+ * first picture and nothing moves.
+ */
+function HeroSlides() {
+  const [rest, setRest] = useState(false);
+  const [ready, setReady] = useState<boolean[]>(() => HERO_SLIDES.map((_, i) => i === 0));
+  const [shown, setShown] = useState(0);
+
+  const firstArrived = () => {
+    if (!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) setRest(true);
+  };
+
+  useEffect(() => {
+    if (!rest) return;
+    const t = window.setInterval(() => setShown((i) => {
+      for (let step = 1; step <= HERO_SLIDES.length; step++) {
+        const next = (i + step) % HERO_SLIDES.length;
+        if (ready[next]) return next;
+      }
+      return i;
+    }), SLIDE_MS);
+    return () => window.clearInterval(t);
+  }, [rest, ready]);
+
+  return (
+    <>
+      {HERO_SLIDES.map((slide, i) => (i === 0 || rest) && (
+        <img
+          key={slide.src}
+          className={`lp-hero-img${i > 0 ? ' lp-hero-slide' : ''}${shown === i ? ' on' : ''}`}
+          src={img(slide.src)}
+          width={1600}
+          height={1000}
+          alt={slide.alt}
+          aria-hidden={shown === i ? undefined : true}
+          onLoad={() => { if (i === 0) firstArrived(); setReady((r) => (r[i] ? r : r.map((v, j) => v || j === i))); }}
+        />
+      ))}
+      <span className="lp-hero-city" aria-hidden>{HERO_SLIDES[shown].city}</span>
+    </>
+  );
+}
+
+/**
  * The front door, and the case for playing.
  *
  * The pictures here are pictures, not maps: `landing-sf.jpg` comes from
- * `npm run shot:landing` and everything under `marketing/` from
- * `npm run shot:marketing`, both screenshots of the real app. A live map
+ * `npm run shot:landing`, the other hero pictures from `npm run shot:heroes`,
+ * and the rest under `marketing/` from `npm run shot:marketing`, all
+ * screenshots of the real app. A live map
  * would cost a first-time visitor the whole map engine and every layer file
  * before they had decided to play. Retake them when what they show changes.
  *
@@ -30,13 +95,7 @@ export function Landing() {
   return (
     <div className="page landing">
       <header className="lp-hero">
-        <img
-          className="lp-hero-img"
-          src={img('landing-sf.jpg')}
-          width={1600}
-          height={1000}
-          alt={`The ${CITY_NAME} board: every hiding zone is a transit stop and the 500 m circle around it.`}
-        />
+        <HeroSlides />
         <nav className="lp-nav" aria-label="Site">
           <a className="lp-brand" href="#/">JetLeg</a>
           <span className="grow" />

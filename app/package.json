@@ -34,6 +34,7 @@
     "verify:layers": "node verify-map-layers.cjs",
     "shot:landing": "node scripts/landing-shot.cjs",
     "shot:marketing": "node scripts/marketing-shots.cjs",
+    "shot:heroes": "node scripts/hero-shots.cjs",
     "seed:community": "tsx seed-community.ts",
     "time:osm": "tsx scripts/time-osm.ts",
     "phone": "HTTPS=1 vite --host",
