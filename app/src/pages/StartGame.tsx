@@ -5,6 +5,7 @@ import { useActiveRound } from '../store/game';
 import { loadActiveMap, type ActiveMap } from '../community/active';
 import { getVersionContent, listCities, listMaps, type CityRow, type MapSummary } from '../community/api';
 import { playOn } from '../community/choose';
+import { HOME_MAP_NAME } from '../community/board';
 import { cityDirectory, countLabel, countryName, flagOf, matchCities, type CityEntry } from '../community/cities';
 import { mapHref } from '../route';
 import { Page } from './Page';
@@ -39,7 +40,7 @@ export function StartGame() {
     listCities().then((res) => {
       if (cancelled) return;
       if (res.ok) setRows(res.value);
-      else setDirectoryNote(`${res.error} Showing the built-in board only.`);
+      else setDirectoryNote(`${res.error} Showing ${HOME_MAP_NAME} only.`);
     });
     return () => { cancelled = true; };
   }, []);
@@ -142,6 +143,14 @@ function CityMaps(props: { city: CityEntry; active: ActiveMap | null; disabled: 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [homeStations, setHomeStations] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!city.builtIn) return;
+    let cancelled = false;
+    loadGameData().then((d) => { if (!cancelled) setHomeStations(d.stations.length); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [city.builtIn]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -186,10 +195,11 @@ function CityMaps(props: { city: CityEntry; active: ActiveMap | null; disabled: 
         {city.builtIn && (
           <li>
             <div className="grow">
-              <b>{city.name}</b>
-              <span className="tag">built in</span>
+              <b>{HOME_MAP_NAME}</b>
               {!active && <span className="tag good">current board</span>}
-              <span className="muted small maprow">The board this app ships with. Works with no connection.</span>
+              <span className="muted small maprow">
+                by JetLeg · full city{homeStations !== null && ` · ${plural(homeStations, 'station')}`}
+              </span>
             </div>
             <button className="primary" disabled={disabled || !!busy} onClick={() => play(null)}>
               {busy === 'built-in' ? 'Loading…' : 'Play'}

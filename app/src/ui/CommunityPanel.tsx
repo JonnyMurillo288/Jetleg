@@ -23,7 +23,7 @@ import {
   type Sort,
   type VersionSummary,
 } from '../community/api';
-import { CITY } from '../community/board';
+import { CITY, HOME_MAP_NAME } from '../community/board';
 import { searchTerm } from '../community/search';
 import { describeDiff, diffStations, readMapText, type MapFile } from '../community/format';
 import { downloadMap, type EditorTarget } from '../studio/Editor';
@@ -149,14 +149,14 @@ function Browse(props: Props) {
 
       <div className="boardnow">
         <span className="muted small">Playing on</span>
-        <strong>{active ? active.map.name : 'Built-in San Francisco board'}</strong>
+        <strong>{active ? active.map.name : HOME_MAP_NAME}</strong>
         <span className="muted small">
           {plural(props.activeStations, 'station')}
           {active && !active.mapId && ' · not published'}
         </span>
         {active && (
           <button className="link" disabled={roundActive} onClick={props.onBuiltIn}>
-            Back to the built-in board
+            Back to {HOME_MAP_NAME}
           </button>
         )}
         {roundActive && <span className="muted small">End your round to change boards.</span>}

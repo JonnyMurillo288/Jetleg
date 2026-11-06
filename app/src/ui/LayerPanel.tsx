@@ -3,6 +3,7 @@ import { LAYER_DEFS } from '../data/load';
 import { useGame } from '../store/game';
 import { UNIT_CHOICES, formatDistance } from './units';
 import { zoneRadius } from '../engine/candidates';
+import { HOME_MAP_NAME } from '../community/board';
 
 /**
  * Layer list. Each point layer gets two switches: the points themselves, and
@@ -14,9 +15,9 @@ import { zoneRadius } from '../engine/candidates';
  */
 export function LayerPanel(props: {
   data: GameData;
-  /** The community map being played on, or null for the built-in board. */
+  /** The community map being played on, or null for the one the app ships. */
   boardName: string | null;
-  /** Return to the built-in board; null when already on it, or mid-round. */
+  /** Return to the map the app ships; null when already on it, or mid-round. */
   onBuiltIn: (() => void) | null;
 }) {
   const { data } = props;
@@ -30,7 +31,7 @@ export function LayerPanel(props: {
       <h3>Game board</h3>
       <div className="row">
         <span className="grow">
-          {props.boardName ?? 'Built-in San Francisco board'}
+          {props.boardName ?? HOME_MAP_NAME}
           <span className="muted small"> · {data.stations.length} stations</span>
         </span>
         <a className="buttonlink" href="#/maps">Map studio</a>
@@ -38,7 +39,7 @@ export function LayerPanel(props: {
       <p className="muted small">
         Browse community maps, or build your own for any city, in the map studio.
         {' '}<a href="#/start">Start on another city or map</a>, or go <a href="#/">home</a>.
-        {props.onBuiltIn && <> <button className="link" onClick={props.onBuiltIn}>Go back to the built-in board</button></>}
+        {props.onBuiltIn && <> <button className="link" onClick={props.onBuiltIn}>Go back to {HOME_MAP_NAME}</button></>}
       </p>
 
       <h3>Map layers</h3>

@@ -5,7 +5,7 @@ import { LAYER_DEFS, VORONOI_KEYS } from '../data/layers';
 import type { GameSize, LngLat, Mode } from '../engine/types';
 import type { Account } from '../community/account';
 import { publishMap, publishVersion } from '../community/api';
-import { CITY, checkMap, radiusOf } from '../community/board';
+import { CITY, HOME_MAP_NAME, checkMap, radiusOf } from '../community/board';
 import { clashGraph, simplifyStations } from '../community/simplify';
 import { combine, idsInShape } from './select';
 import { ZONE_RADIUS_M } from '../engine/candidates';
@@ -804,7 +804,7 @@ function StationsTab(p: TabProps) {
         </label>
       </div>
       <p className="muted small">
-        How far a hider may be from their station. {ZONE_RADIUS_M} m is the built-in board’s. Everyone playing this map
+        How far a hider may be from their station. {ZONE_RADIUS_M} m is {HOME_MAP_NAME}’s. Everyone playing this map
         plays at this size.
       </p>
 

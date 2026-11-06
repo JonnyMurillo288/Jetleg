@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { GameData } from '../data/load';
 import { useGame, type Round } from '../store/game';
 import { sameBoard } from '../community/active';
+import { HOME_MAP_NAME } from '../community/board';
 import { RoundWrapped } from './RoundWrapped';
 
 function formatDuration(ms: number): string {
@@ -96,7 +97,7 @@ function RoundResult(props: { round: Round; data: GameData; onBack: () => void }
         board={otherBoard ? null : data}
         boardNote={
           <>
-            This round was played on {round.board ? `the map “${round.board.name}”` : 'the built-in board'}, not the one
+            This round was played on {`the map “${round.board?.name ?? HOME_MAP_NAME}”`}, not the one
             loaded now. Switch back to it on the Map tab to see its zone counts.
           </>
         }

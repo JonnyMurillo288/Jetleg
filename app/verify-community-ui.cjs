@@ -423,7 +423,7 @@ const lookAt = async (p, ll, zoom) => { await p.evaluate(([c, z]) => window.__ma
   check('the original lists it', await hasText(ben.p, '.community', /Branches · 1/));
   await ben.p.screenshot({ path: process.env.SHOT || '/tmp/studio-map.png' });
   await clickText(ben.p, 'All maps');
-  await clickText(ben.p, 'Back to the built-in board');
+  await clickText(ben.p, 'Back to San Francisco: the whole city');
   await ben.p.waitForFunction(() => window.__map.getSource('stations').serialize().data.features.length === 192, null, { timeout: 15000 }).catch(() => {});
   check('going back to the built-in board restores it', (await board(ben.p)).stations === 192);
 

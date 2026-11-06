@@ -4,7 +4,7 @@ import { enterBoard } from '../engine/reset';
 import { readStrictness, type Strictness } from '../engine/candidates';
 import { requestPersistence, useGame, type Round } from '../store/game';
 import { loadActiveMap, sameBoard, stampOf, type ActiveMap } from '../community/active';
-import { applyMap } from '../community/board';
+import { HOME_MAP_NAME, applyMap } from '../community/board';
 import { supabase } from '../sync/client';
 import { gameFileText, readGameFile, roundFileName, saveTextFile, type GameFile } from '../stats/gamefile';
 import { RoundWrapped } from '../ui/RoundWrapped';
@@ -92,7 +92,7 @@ export function StatsPage() {
         <p className="muted">
           {round.role === 'seeker' ? 'Seeking' : 'Hiding'}
           {' · '}{new Date(round.startedAt).toLocaleString()}
-          {round.board ? ` · on “${round.board.name}”` : ' · built-in board'}
+          {` · on “${round.board?.name ?? HOME_MAP_NAME}”`}
           {!round.endedAt && ' · still in progress'}
           {fromFile && ` · from ${opened!.name}`}
         </p>

@@ -13,6 +13,8 @@ export const CITY = 'sf';
 /** How that board is named to a person, and the country its flag comes from. */
 export const CITY_NAME = 'San Francisco';
 export const CITY_COUNTRY = 'us';
+/** That board, named like any other map: one of the maps to explore, not a special case. */
+export const HOME_MAP_NAME = `${CITY_NAME}: the whole city`;
 
 export type BoardProblem = { blocking: boolean; text: string };
 

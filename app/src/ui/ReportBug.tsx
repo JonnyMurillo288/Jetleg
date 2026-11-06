@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useActiveRound, useGame } from '../store/game';
+import { HOME_MAP_NAME } from '../community/board';
 
 /** Where reports go. Set in .env.local; with none, the form can still copy a report. */
 const REPORT_TO = import.meta.env.VITE_REPORT_EMAIL ?? '';
@@ -35,7 +36,7 @@ export function ReportBug(props: { checks: { label: string; state: string }[]; b
       `Site: ${location.origin}`,
       `Browser: ${navigator.userAgent}`,
       `Screen: ${screen.width}×${screen.height} @${devicePixelRatio}x${standalone ? ', installed' : ''}`,
-      `Board: ${props.boardName ?? 'built-in San Francisco'}`,
+      `Board: ${props.boardName ?? HOME_MAP_NAME}`,
       `Role: ${role} · rules: ${settings.strictness}, ${settings.gameSize}, ${settings.units}`,
       round ? `Round: ${round.asks.length} answers logged${round.endedAt ? ', ended' : ''}` : 'Round: none open',
       `Checks: ${props.checks.map((c) => `${c.label} ${c.state}`).join('; ') || 'not run'}`,
